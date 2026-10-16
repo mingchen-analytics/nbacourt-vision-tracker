@@ -1,0 +1,48 @@
+{
+ "video_id": "clip1_GSW_at_PHX_kuminga_drive",
+ "frame_index": 0,
+ "timestamp_sec": 0.0,
+ "image_size": [
+  1280,
+  720
+ ],
+ "annotator": "claude-visual-estimate (approximate pixel reading from a gridded frame; NOT ground truth)",
+ "points": [
+  {
+   "landmark_id": 10,
+   "name": "L_lane_baseline_near",
+   "u": 76.0,
+   "v": 394.0
+  },
+  {
+   "landmark_id": 11,
+   "name": "L_lane_baseline_far",
+   "u": 193.0,
+   "v": 272.0
+  },
+  {
+   "landmark_id": 12,
+   "name": "L_lane_ft_near",
+   "u": 541.0,
+   "v": 420.0
+  },
+  {
+   "landmark_id": 13,
+   "name": "L_lane_ft_far",
+   "u": 606.0,
+   "v": 300.0
+  },
+  {
+   "landmark_id": 14,
+   "name": "L_ft_circle_top",
+   "u": 716.0,
+   "v": 358.0
+  },
+  {
+   "landmark_id": 19,
+   "name": "L_3pt_top",
+   "u": 815.0,
+   "v": 360.0
+  }
+ ]
+}

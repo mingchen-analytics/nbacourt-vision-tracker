@@ -1,0 +1,36 @@
+{
+ "video_id": "clip5_POR_at_GSW_double_gap",
+ "frame_index": 250,
+ "timestamp_sec": 8.333333333333334,
+ "image_size": [
+  1280,
+  720
+ ],
+ "annotator": "claude-visual-estimate (independent of the keyframe; approx +/-3-5 px, baseline corners +/-8 px; NOT ground truth)",
+ "points": [
+  {
+   "landmark_id": 10,
+   "name": "L_lane_baseline_near",
+   "u": 125.0,
+   "v": 505.0
+  },
+  {
+   "landmark_id": 11,
+   "name": "L_lane_baseline_far",
+   "u": 330.0,
+   "v": 382.0
+  },
+  {
+   "landmark_id": 12,
+   "name": "L_lane_ft_near",
+   "u": 727.0,
+   "v": 540.0
+  },
+  {
+   "landmark_id": 13,
+   "name": "L_lane_ft_far",
+   "u": 805.0,
+   "v": 415.0
+  }
+ ]
+}

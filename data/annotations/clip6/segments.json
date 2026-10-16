@@ -1,0 +1,44 @@
+{
+ "video_id": "clip6_LAL_at_DEN_long",
+ "annotator": "tools/inspect_video.py proposals (hist cut + flash rule) + claude visual review of inspect sheets; NOT ground truth",
+ "segments": [
+  {
+   "camera_segment_id": 0,
+   "start_frame": 0,
+   "end_frame": 5817,
+   "view_type": "main_broadcast",
+   "supported": true,
+   "init": "keyframe",
+   "keyframe": "data/annotations/clip6/kf_0000.json"
+  },
+  {
+   "camera_segment_id": 1,
+   "start_frame": 5818,
+   "end_frame": 6090,
+   "view_type": "closeup_sideline",
+   "supported": false
+  },
+  {
+   "camera_segment_id": 2,
+   "start_frame": 6091,
+   "end_frame": 6755,
+   "view_type": "main_broadcast",
+   "supported": true,
+   "init": "keyframe",
+   "keyframe": "data/annotations/clip6/kf_6100.json"
+  }
+ ],
+ "flash_frames": [
+  927,
+  1880,
+  2375,
+  3346,
+  3739,
+  3914,
+  4238,
+  4625,
+  4800,
+  5648,
+  6662
+ ]
+}

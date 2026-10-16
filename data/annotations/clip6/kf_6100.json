@@ -1,0 +1,36 @@
+{
+ "video_id": "clip6_LAL_at_DEN_long",
+ "frame_index": 6100,
+ "timestamp_sec": null,
+ "image_size": [
+  1280,
+  720
+ ],
+ "annotator": "claude-visual-estimate (approximate pixel reading from gridded + zoomed frame; the center logo ring is NOT the 1.83 m center circle and was not used; NOT ground truth)",
+ "points": [
+  {
+   "landmark_id": 5,
+   "name": "mid_far",
+   "u": 620.0,
+   "v": 264.0
+  },
+  {
+   "landmark_id": 14,
+   "name": "L_ft_circle_top",
+   "u": 35.0,
+   "v": 430.0
+  },
+  {
+   "landmark_id": 19,
+   "name": "L_3pt_top",
+   "u": 150.0,
+   "v": 450.0
+  },
+  {
+   "landmark_id": 30,
+   "name": "R_3pt_top",
+   "u": 1068.0,
+   "v": 415.0
+  }
+ ]
+}

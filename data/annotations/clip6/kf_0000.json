@@ -1,0 +1,42 @@
+{
+ "video_id": "clip6_LAL_at_DEN_long",
+ "frame_index": 0,
+ "timestamp_sec": 0.0,
+ "image_size": [
+  1280,
+  720
+ ],
+ "annotator": "claude-visual-estimate (approximate pixel reading from gridded + zoomed frame; NOT ground truth)",
+ "points": [
+  {
+   "landmark_id": 3,
+   "name": "R_far_corner",
+   "u": 910.0,
+   "v": 264.0
+  },
+  {
+   "landmark_id": 24,
+   "name": "R_lane_ft_far",
+   "u": 515.0,
+   "v": 432.0
+  },
+  {
+   "landmark_id": 23,
+   "name": "R_lane_ft_near",
+   "u": 621.0,
+   "v": 577.0
+  },
+  {
+   "landmark_id": 25,
+   "name": "R_ft_circle_top",
+   "u": 372.0,
+   "v": 507.0
+  },
+  {
+   "landmark_id": 30,
+   "name": "R_3pt_top",
+   "u": 229.0,
+   "v": 478.0
+  }
+ ]
+}

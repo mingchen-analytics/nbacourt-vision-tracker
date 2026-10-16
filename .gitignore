@@ -1,0 +1,19 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.coverage
+build/
+dist/
+
+# large / private artifacts
+data/*
+!data/annotations/
+models/
+outputs/
+!outputs/samples/
+*.mp4
+*.mov
+*.pt
+*.onnx
+.pytest_tmp/

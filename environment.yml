@@ -1,0 +1,10 @@
+# Create with (keeps everything on D:):
+#   set CONDA_PKGS_DIRS=D:\conda\pkgs
+#   conda env create -p D:\conda\envs\nbatrack -f environment.yml
+#   D:\conda\envs\nbatrack\python.exe -m pip install -e ".[video,dev]"
+name: nbatrack
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip

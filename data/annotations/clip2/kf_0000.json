@@ -1,0 +1,36 @@
+{
+ "video_id": "clip2_POR_at_GSW_ghost_flare",
+ "frame_index": 0,
+ "timestamp_sec": 0.0,
+ "image_size": [
+  1280,
+  720
+ ],
+ "annotator": "claude-visual-estimate (approximate pixel reading from a gridded frame; NOT ground truth)",
+ "points": [
+  {
+   "landmark_id": 12,
+   "name": "L_lane_ft_near",
+   "u": 307.0,
+   "v": 542.0
+  },
+  {
+   "landmark_id": 13,
+   "name": "L_lane_ft_far",
+   "u": 427.0,
+   "v": 397.0
+  },
+  {
+   "landmark_id": 14,
+   "name": "L_ft_circle_top",
+   "u": 570.0,
+   "v": 462.0
+  },
+  {
+   "landmark_id": 19,
+   "name": "L_3pt_top",
+   "u": 701.0,
+   "v": 443.0
+  }
+ ]
+}

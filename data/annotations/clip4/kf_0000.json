@@ -1,0 +1,36 @@
+{
+ "video_id": "clip4_POR_at_GSW_35empty",
+ "frame_index": 0,
+ "timestamp_sec": 0.0,
+ "image_size": [
+  1280,
+  720
+ ],
+ "annotator": "claude-visual-estimate (approximate pixel reading from a gridded frame; NOT ground truth)",
+ "points": [
+  {
+   "landmark_id": 23,
+   "name": "R_lane_ft_near",
+   "u": 912.0,
+   "v": 520.0
+  },
+  {
+   "landmark_id": 24,
+   "name": "R_lane_ft_far",
+   "u": 825.0,
+   "v": 388.0
+  },
+  {
+   "landmark_id": 25,
+   "name": "R_ft_circle_top",
+   "u": 672.0,
+   "v": 445.0
+  },
+  {
+   "landmark_id": 30,
+   "name": "R_3pt_top",
+   "u": 548.0,
+   "v": 440.0
+  }
+ ]
+}

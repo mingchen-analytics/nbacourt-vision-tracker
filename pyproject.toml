@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nbatrack"
+version = "0.1.0"
+description = "NBA broadcast video to court-coordinate tracking data"
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+license = { text = "Proprietary (private research)" }
+dependencies = [
+    "numpy>=1.26,<3",
+    "scipy>=1.11",
+    "opencv-python>=4.9",
+    "pyarrow>=15",
+    "pandas>=2.1",
+    "pyyaml>=6",
+]
+
+[project.optional-dependencies]
+video = ["av>=12"]
+inference = ["onnxruntime>=1.18"]
+dev = ["pytest>=8", "pytest-cov>=5"]
+
+[project.scripts]
+nbatrack = "nbatrack.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --basetemp=.pytest_tmp"
+markers = [
+    "slow: long-running tests",
+]

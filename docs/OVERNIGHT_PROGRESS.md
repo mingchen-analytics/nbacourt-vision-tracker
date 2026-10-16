@@ -120,7 +120,20 @@ Resumable checkpoint log. Newest entries at the bottom. Git: local repo, branch 
 - 12:46: tracking + rendering re-run with the latest code (airborne-ball fix was not in the
   02:31 process). The first output is kept in outputs/experiments/clip6_full_stageB_v1.
 
+- [x] 12:46-13:25 (commits 44aa3c5, 84d54fc):
+  - Stage B and rendering re-run.
+  - Gate study v2 (+ coverage, synthetic): rule = IoU >= 0.45 OR (coverage >= 0.80 and IoU >= 0.30).
+  - Natural-failure validation on 17 unseen frames: 9/272 wrong accepted (post-hoc fix of a coverage
+    loophole), 17/17 references accepted.
+  - All 110 tests pass (incl. resume test).
+  - Issue list (743 flags + 60 clips), metrics, 3 CVAT interval packages (600/600 frames each).
+  - LONG_VIDEO_EVALUATION.md and OVERNIGHT_REPORT.md final.
+- [x] M5, M7 done.
+
 ## Open / in progress
+- Nothing running. Next steps that need the user: docs/OVERNIGHT_REPORT.md section 10.
+
+## History of this section
 - 02:31: FULL run started:
   `tools/run_long_video.py data/raw/clip6_long_115s.mp4 --video-id clip6_LAL_at_DEN_long
   --segments data/annotations/clip6/segments.json --out outputs/real/clip6_long_115s

@@ -120,3 +120,28 @@
 
 - 存檔後直接關掉瀏覽器即可。
 - 不用時可以結束 Docker Desktop（右下角系統匣圖示 → Quit），釋放記憶體。實測 CVAT 容器約用 3.2 GB，整個 WSL 虛擬機（工作管理員裡的 vmmemWSL）約 7.6 GB。下次開啟 Docker Desktop，CVAT 會自動恢復，資料不會遺失。
+
+## 11. 打不開時的處理
+
+| 狀況 | 原因 | 處理 |
+|---|---|---|
+| 網頁「無法連線」 | Docker Desktop 沒有在執行（開機後不會自動啟動） | 開啟 Docker Desktop，等 1–2 分鐘再重新整理 |
+| 網頁顯示 **502 Bad Gateway**，一直不好 | 電腦不正常關機（例如沒電、強制重開機）後，CVAT 的佇列資料庫 Redis 檔案損壞 | 請 Claude 處理，或照下面步驟自己修 |
+
+2026-10-16 實際發生過一次 502 的情況，修復步驟如下：
+1. 先備份標註資料庫。
+2. 用 Redis 內建工具修掉損壞的最後 212 bytes。
+3. 重新啟動 Redis。
+
+修完後確認：你的 6501 個框完全沒變。
+
+**你的標註存在 PostgreSQL 資料庫（`cvat_db`），不在 Redis。** 備份放在 `D:\external\cvat_backups\`。
+
+自己修復的指令（在 PowerShell 執行）：
+```
+docker stop cvat_redis_inmem
+docker run --rm -v cvat_cvat_inmem_db:/data redis:7.2.11-alpine sh -c "cd /data/appendonlydir && yes | redis-check-aof --fix appendonly.aof.manifest"
+docker start cvat_redis_inmem
+```
+
+**避免這個問題的方法**：關機前先在 CVAT 存檔，再從右下角系統匣結束 Docker Desktop（Quit）。

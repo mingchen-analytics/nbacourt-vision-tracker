@@ -612,7 +612,8 @@ def track_and_export(out_dir: str | Path, cfg: TrackConfig | None = None) -> dic
                 tdets.append(Detection(boxes[k], float(row.score), xy if use_xy else None,
                                        float(cp.sigma_m[k]) if use_xy else None,
                                        lab if use_app else None, occlusion=float(occlusion[k]),
-                                       color=lab if np.all(np.isfinite(lab)) else None))
+                                       color=lab if np.all(np.isfinite(lab)) else None,
+                                       h_ratio=float(hr[k]) if np.isfinite(hr[k]) else None))
                 meta.append((gp.uv[k], xy if finite else None, float(cp.sigma_m[k]) if finite else None,
                              (row.torso_L, row.torso_a, row.torso_b), row.Index, float(occlusion[k]),
                              float(hr[k]), feet_ok))

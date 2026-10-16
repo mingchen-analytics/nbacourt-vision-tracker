@@ -30,6 +30,7 @@ class Detection:
     feature: np.ndarray | None = None  # L2-normalized appearance embedding
     occlusion: float = 0.0  # max IoU with other person boxes in the frame
     color: np.ndarray | None = None  # jersey color (e.g. median torso Lab)
+    h_ratio: float | None = None  # box height / expected standing height at the ground point
 
 
 @dataclass
@@ -66,6 +67,13 @@ class TrackerConfig:
     team_gate: float | None = None
     team_min_samples: int = 8
     team_max_occ: float = 0.1
+    # height-consistency gate (experimental, off by default): forbid associating a track whose
+    # recent median box-height ratio differs from the detection's by more than this (e.g. a
+    # standing player's track, ratio ~1, jumping onto a truncated front-row spectator, ~0.45).
+    # height_gate_max_occ: apply only to detections whose occlusion IoU is below it (None = all).
+    height_ratio_gate: float | None = None
+    height_gate_max_occ: float | None = None
+    height_gate_min_samples: int = 10
 
 
 @dataclass
@@ -79,6 +87,11 @@ class Track:
     feature: np.ndarray | None = None
     last_score: float = 0.0
     colors: list = field(default_factory=list)
+    ratios: list = field(default_factory=list)
+
+    def ratio_median(self, min_samples: int) -> float | None:
+        r = [x for x in self.ratios[-30:] if x is not None and np.isfinite(x)]
+        return float(np.median(r)) if len(r) >= min_samples else None
 
     def color_proto(self, min_samples: int) -> np.ndarray | None:
         if len(self.colors) < min_samples:
@@ -217,6 +230,11 @@ class Tracker:
                         app = 1 - float(t.feature @ d.feature)
                     if c.w_app > 0:
                         val = (1 - c.w_app) * val + c.w_app * app
+                if c.height_ratio_gate is not None and d.h_ratio is not None and np.isfinite(d.h_ratio) \
+                        and (c.height_gate_max_occ is None or d.occlusion < c.height_gate_max_occ):
+                    tr = t.ratio_median(c.height_gate_min_samples)
+                    if tr is not None and abs(tr - d.h_ratio) > c.height_ratio_gate:
+                        continue  # standing person vs truncated / seated box: different people
                 if (c.w_team > 0 or c.team_gate is not None) and d.color is not None \
                         and d.occlusion < c.team_max_occ:
                     proto = t.color_proto(c.team_min_samples)
@@ -258,6 +276,7 @@ class Tracker:
                 t.feature = _normalize(0.9 * t.feature + 0.1 * d.feature)
         if d.color is not None and d.occlusion < self.cfg.team_max_occ and np.all(np.isfinite(d.color)):
             t.colors.append(np.asarray(d.color, float))
+        t.ratios.append(d.h_ratio)
         t.hits += 1
         t.time_since_update = 0.0
         t.last_score = d.score
@@ -288,7 +307,18 @@ class Tracker:
         # Stage 2: still-active tracks vs low-score detections, IoU only
         if rem_tracks and lo:
             iou = iou_matrix(np.array([t.bbox for t in rem_tracks]), np.array([dets[j].bbox for j in lo]))
-            m2, _, _ = self._match(np.where(iou > 0, 1 - iou, np.inf), 1 - c.low_match_iou)
+            cost2 = np.where(iou > 0, 1 - iou, np.inf)
+            if c.height_ratio_gate is not None:
+                for a_, t in enumerate(rem_tracks):
+                    tr = t.ratio_median(c.height_gate_min_samples)
+                    if tr is None:
+                        continue
+                    for b_, j in enumerate(lo):
+                        d = dets[j]
+                        if d.h_ratio is not None and np.isfinite(d.h_ratio) and abs(tr - d.h_ratio) > c.height_ratio_gate \
+                                and (c.height_gate_max_occ is None or d.occlusion < c.height_gate_max_occ):
+                            cost2[a_, b_] = np.inf
+            m2, _, _ = self._match(cost2, 1 - c.low_match_iou)
             for i, j, cst in m2:
                 out.append((rem_tracks[i], lo[j], cst))
 

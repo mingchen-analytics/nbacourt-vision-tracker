@@ -92,7 +92,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("video")
     ap.add_argument("--video-id", required=True)
-    ap.add_argument("--segments", required=True)
+    ap.add_argument("--segments", help="camera segments JSON (multi-shot video)")
+    ap.add_argument("--keyframe", help="keyframe JSON (single-shot video, instead of --segments)")
     ap.add_argument("--out", required=True)
     ap.add_argument("--max-frames", type=int)
     ap.add_argument("--team-init")
@@ -103,6 +104,8 @@ def main():
     ap.add_argument("--redo", nargs="*", default=[])
     ap.add_argument("--no-render", action="store_true")
     a = ap.parse_args()
+    if not a.segments and not a.keyframe:
+        ap.error("--segments or --keyframe is required")
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     keep_awake(True)
@@ -119,7 +122,7 @@ def main():
     # A: detection + calibration
     if not (out / "run_analyze.json").exists() or "analyze" in a.redo:
         t0 = stage("analyze")
-        analyze_video(a.video, out, None, a.video_id, AnalyzeConfig(provider=a.det_provider, max_frames=a.max_frames),
+        analyze_video(a.video, out, a.keyframe, a.video_id, AnalyzeConfig(provider=a.det_provider, max_frames=a.max_frames),
                       segments_json=a.segments)
         rec["stages_s"]["analyze"] = time.time() - t0
     run_a = json.loads((out / "run_analyze.json").read_text(encoding="utf-8"))

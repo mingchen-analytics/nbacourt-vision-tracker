@@ -45,6 +45,12 @@ def variants(team_init: str | None) -> dict[str, TrackConfig]:
         "exemplars_feet06_trunc06": TrackConfig(**ex, min_height_ratio=0.6, min_track_height_ratio=0.6),
         "exemplars_trunc06_lost3s": TrackConfig(**ex, min_track_height_ratio=0.6,
                                                 tracker=replace(DEFAULT_TRACKER, max_time_lost_s=3.0)),
+        # current defaults (height rules on) = baseline for the height-consistency gate experiment
+        "current": TrackConfig(**ex),
+        "hgate035": TrackConfig(**ex, tracker=replace(DEFAULT_TRACKER, height_ratio_gate=0.35)),
+        "hgate035_unocc": TrackConfig(**ex, tracker=replace(DEFAULT_TRACKER, height_ratio_gate=0.35,
+                                                            height_gate_max_occ=0.1)),
+        "hgate025": TrackConfig(**ex, tracker=replace(DEFAULT_TRACKER, height_ratio_gate=0.25)),
     }
 
 

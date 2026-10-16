@@ -67,6 +67,15 @@ def keep_awake(on: bool) -> None:
     import ctypes
     ES_CONTINUOUS, ES_SYSTEM_REQUIRED = 0x80000000, 0x00000001
     ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS | (ES_SYSTEM_REQUIRED if on else 0))
+    if on:
+        # Opt this process out of Windows 11 EcoQoS ("efficiency mode") execution-speed
+        # throttling of background processes (SetProcessInformation / ProcessPowerThrottling).
+        # The 2026-10-16 diagnostic ran 3-4x slower on CPU after a sleep/resume. Per-process only.
+        class PPT(ctypes.Structure):
+            _fields_ = [("Version", ctypes.c_ulong), ("ControlMask", ctypes.c_ulong), ("StateMask", ctypes.c_ulong)]
+        s = PPT(1, 0x1, 0x0)  # PROCESS_POWER_THROTTLING_EXECUTION_SPEED controlled, state off
+        k = ctypes.windll.kernel32
+        k.SetProcessInformation(k.GetCurrentProcess(), 4, ctypes.byref(s), ctypes.sizeof(s))
 
 
 def verify_video(path: Path) -> dict:
@@ -89,7 +98,8 @@ def main():
     ap.add_argument("--team-init")
     ap.add_argument("--team-frames", type=int, nargs="*", default=[])
     ap.add_argument("--stitch", action="store_true")
-    ap.add_argument("--provider", default="dml")
+    ap.add_argument("--provider", default="dml", help="ONNX provider for WASB")
+    ap.add_argument("--det-provider", default="cpu", help="ONNX provider for RF-DETR (DirectML degraded to 1053 ms/frame vs CPU 373 ms on 2026-10-16)")
     ap.add_argument("--redo", nargs="*", default=[])
     ap.add_argument("--no-render", action="store_true")
     a = ap.parse_args()
@@ -109,7 +119,7 @@ def main():
     # A: detection + calibration
     if not (out / "run_analyze.json").exists() or "analyze" in a.redo:
         t0 = stage("analyze")
-        analyze_video(a.video, out, None, a.video_id, AnalyzeConfig(provider=a.provider, max_frames=a.max_frames),
+        analyze_video(a.video, out, None, a.video_id, AnalyzeConfig(provider=a.det_provider, max_frames=a.max_frames),
                       segments_json=a.segments)
         rec["stages_s"]["analyze"] = time.time() - t0
     run_a = json.loads((out / "run_analyze.json").read_text(encoding="utf-8"))

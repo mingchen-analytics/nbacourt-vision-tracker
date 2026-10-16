@@ -31,6 +31,19 @@ def test_viterbi_allows_missing_frames_instead_of_jumping():
     assert all(out[f] is None for f in range(10, 14))
 
 
+def test_airborne_ball_projecting_beyond_the_court_is_kept_by_default():
+    """Clip-6 regression: a shot arc projects > 12 m off court on the floor plane; the old
+    'far projection' rule deleted the whole arc."""
+    rows = [(f, 37, 0.8, 300 + 4 * f, 120 + 5 * abs(f - 10), 312 + 4 * f, 132 + 5 * abs(f - 10)) for f in range(20)]
+    det = _cands(rows)
+    frames = pd.DataFrame(dict(frame_index=range(20), timestamp_sec=np.arange(20) / 60))
+    H = np.array([[10.0, 0, 640], [0, -10.0, 0], [0, 0, 1]])  # court y = -v / 10: every candidate at |y| > 12
+    cal = pd.DataFrame(dict(frame_index=range(20), H_court_to_img=[H.ravel()] * 20, model=["ptz"] * 20))
+    players = pd.DataFrame(columns=["frame_index", "track_id", "bbox_x1", "bbox_y1", "bbox_x2", "bbox_y2", "court_x_m", "court_y_m"])
+    assert (track_ball(det, frames, cal, players, "v").image_source == "detected").sum() == 20
+    assert len(track_ball(det, frames, cal, players, "v", max_abs_y_m=12.0)) == 0  # old behaviour
+
+
 def test_track_ball_interpolates_short_gaps_and_uses_holder_position():
     rows = [(f, 37, 0.6, 200 + 2 * f, 150, 210 + 2 * f, 160) for f in range(10) if f not in (4, 5)]
     det = _cands(rows)

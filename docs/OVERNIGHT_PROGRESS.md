@@ -62,7 +62,43 @@ Resumable checkpoint log. Newest entries at the bottom. Git: local repo, branch 
   `run_long_video.py` now requests "system required" while it runs (per-process, no settings
   changed). Stage A writes `progress.json` every 300 frames.
 
+- [x] M2 (02:11): diagnostic done (`outputs/real/clip6_long_115s_diag`).
+  - Calibration: 1019/1020 good, 1 flash frame held; overlays visually OK on 12 frames.
+  - Videos decode fully (1020/1020 packets each); peak memory 2.0 GB.
+  - Slow run: RF-DETR on DirectML degraded to 1053 ms/frame (CPU now 373 ms; 318 ms on
+    DirectML earlier). CPU stages ran 3-4x slower than normal after the sleep/resume.
+    Full run therefore uses RF-DETR on CPU; the run script now also opts out of EcoQoS throttling.
+- [x] Stage-B variants on the diagnostic interval (tools/variant_runner.py,
+  outputs/experiments/clip6_diag_variants/variant_summary.json). All proxies, no GT:
+  - manual team exemplars vs k-means: referees/frame p50 4 -> 2; players p50 8 -> 10;
+    tracks with colour switch 9 -> 5. Adopted (as on clips 1-5).
+  - stitching: 0 links (no effect).
+  - lost-track 3 s: fewer tracks (23 -> 21), but merges are not yet verified -> not adopted.
+  - New box-height ratio = box height / expected pixel height of a 1.95 m person at the
+    ground point. Players: median 0.89-1.05; front-row spectator 0.45.
+    - Per detection, output only (< 0.6): coordinate jumps 87 -> 44, speed violations
+      20 -> 12 per 1000 rows, tracking unchanged. 12/12 sampled suppressed rows had hidden feet
+      (AI visual check). Adopted.
+    - Per track (median < 0.6 -> role other): frames with > 10 "players" 22% -> 3%. Both
+      relabelled tracks are front-row spectators. Adopted.
+    - Thresholds were chosen on this interval: to be checked on unseen intervals of the full run.
+  - Hiding the point from the TRACKER as well fragmented tracks (23 -> 28): rejected.
+  - Bug fixed: interpolation created duplicate (track, frame) rows where an observed row had an
+    unknown position (11 duplicates at the flash frame). Now merged into the existing row
+    (`merge_interpolated`, test_stage_b_rows.py).
+- Found by visual check: track t004 switches from an on-court player to a front-row spectator;
+  referee #45 at the near sideline is labelled player B for part of track t002.
+- Floor-IoU limitation found by the synthetic integration test: a correct pose of a wide view
+  scores 0.34-0.45 when the floor outside the lines is court-coloured (wood apron).
+  `court_coverage` (share of the projected court with floor tone) is now logged as well; the
+  final rule is decided after stage A from the logged values. 2 integration tests fail
+  until then (not committed).
+
 ## Open / in progress
-- 23:03: diagnostic run started (`tools/run_long_video.py ... --max-frames 1020`), with code
-  from BEFORE the grading change. Its calibration is re-graded afterwards with
-  tools/regrade_calibration.py.
+- 02:31: FULL run started:
+  `tools/run_long_video.py data/raw/clip6_long_115s.mp4 --video-id clip6_LAL_at_DEN_long
+  --segments data/annotations/clip6/segments.json --out outputs/real/clip6_long_115s
+  --det-provider cpu --provider dml --team-init data/annotations/clip6/teams.json
+  --team-frames 60 400 860`
+  - Log: outputs/real/clip6_long_115s/run_long.log; stage-A progress in progress.json.
+  - If interrupted, rerun the same command: finished stages are skipped.

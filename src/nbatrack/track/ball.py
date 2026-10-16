@@ -75,7 +75,7 @@ def viterbi_ball(cands: dict[int, pd.DataFrame], frames: list[int], H_by_frame: 
 
 def remove_static_clutter(balls: pd.DataFrame, H: dict, players: pd.DataFrame | None = None,
                           window: int = 30, persist_frac: float = 0.6, bin_m: float = 0.35,
-                          max_abs_y_m: float = 12.0) -> pd.DataFrame:
+                          max_abs_y_m: float | None = 12.0) -> pd.DataFrame:
     """Drop ball candidates at world-static locations (rim, net, floor graphics, objects in
     the stands).
 
@@ -83,9 +83,11 @@ def remove_static_clutter(balls: pd.DataFrame, H: dict, players: pd.DataFrame | 
     the floor homography, whatever its height. A candidate is clutter if, within +-`window`
     frames, a candidate sits at the same floor location (same or neighbouring bin) in at
     least `persist_frac` of the frames AND it is not inside any tracked player's box (a
-    held ball is inside the holder's box). Candidates projecting deep into the stands
-    (|y| > max_abs_y_m) are dropped too. A loose ball lying still on the floor would also be
-    removed (documented limitation).
+    held ball is inside the holder's box). Optionally, candidates projecting deep into the
+    stands (|y| > max_abs_y_m) are dropped too; NOTE that a ball high in the air (a shot or a
+    long pass) also projects far beyond the court on the floor plane, so this rule deletes
+    airborne balls (clip 6, f937-1019: a whole shot arc). A loose ball lying still on the floor
+    would also be removed (documented limitation).
     """
     if not len(balls) or not H:
         return balls
@@ -115,7 +117,7 @@ def remove_static_clutter(balls: pd.DataFrame, H: dict, players: pd.DataFrame | 
     for k, r in enumerate(b.itertuples()):
         if not np.isfinite(r.cfx):
             continue
-        if abs(r.cfy) > max_abs_y_m:
+        if max_abs_y_m is not None and abs(r.cfy) > max_abs_y_m:
             keep[k] = False
             continue
         if inside[k]:
@@ -132,7 +134,11 @@ def remove_static_clutter(balls: pd.DataFrame, H: dict, players: pd.DataFrame | 
 
 
 def track_ball(det: pd.DataFrame, frames_tbl: pd.DataFrame, cal: pd.DataFrame, players: pd.DataFrame,
-               video_id: str, min_score: float = 0.1, max_interp_frames: int = 8) -> pd.DataFrame:
+               video_id: str, min_score: float = 0.1, max_interp_frames: int = 8,
+               max_abs_y_m: float | None = None) -> pd.DataFrame:
+    # max_abs_y_m off by default (2026-10-16): with WASB candidates the 'far floor projection'
+    # rule only removed airborne balls; 48/48 sampled frames it had deleted on clips 2/4/5/6
+    # were the real ball in flight (tools/ball_filter_experiment.py), 0 frames lost without it.
     balls = det[(det.cls == 37) & (det.score >= min_score)].copy()
     frames = list(frames_tbl.frame_index)
     ts = dict(zip(frames_tbl.frame_index, frames_tbl.timestamp_sec))
@@ -140,7 +146,7 @@ def track_ball(det: pd.DataFrame, frames_tbl: pd.DataFrame, cal: pd.DataFrame, p
     for f, r in cal.set_index("frame_index").iterrows():
         if r.H_court_to_img is not None and r.model != "none":
             H[f] = np.asarray(r.H_court_to_img, float).reshape(3, 3)
-    balls = remove_static_clutter(balls, H, players)
+    balls = remove_static_clutter(balls, H, players, max_abs_y_m=max_abs_y_m)
     cands = {f: g for f, g in balls.groupby("frame_index")}
     choice = viterbi_ball(cands, frames, H)
     rows = []

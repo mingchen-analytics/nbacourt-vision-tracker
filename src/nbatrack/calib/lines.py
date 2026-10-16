@@ -88,7 +88,17 @@ def floor_iou(cam: PinholeCamera, tone: np.ndarray, overlay: np.ndarray | None =
     """IoU between the projected court rectangle (inside the image) and the floor-tone mask.
     A correct calibration of a main broadcast view gives a high value (most of the
     wood-toned area lies inside the court and vice versa); a calibration that puts the court
-    on the stands gives a low one."""
+    on the stands gives a low one. Limitation: where the floor outside the lines has the same
+    tone as the court (wood apron), wide views give a low IoU even for a correct pose; see
+    floor_agreement()['court_coverage']."""
+    return floor_agreement(cam, tone, overlay, scale)["iou"]
+
+
+def floor_agreement(cam: PinholeCamera, tone: np.ndarray, overlay: np.ndarray | None = None,
+                    scale: float = FLOOR_IOU_SCALE) -> dict:
+    """iou: |court ∩ tone| / |court ∪ tone|;  court_coverage: |court ∩ tone| / |court| (share
+    of the projected court area with floor tone; unaffected by a wood apron, lowered by large
+    painted logos / lanes);  tone_coverage: |court ∩ tone| / |tone|."""
     hh, ww = tone.shape
     hl, hw = NBA_COURT.half_length, NBA_COURT.half_width
     border = densify(np.array([[-hl, -hw], [hl, -hw], [hl, hw], [-hl, hw], [-hl, -hw]]), 0.25)
@@ -103,7 +113,9 @@ def floor_iou(cam: PinholeCamera, tone: np.ndarray, overlay: np.ndarray | None =
         poly, t = poly & keep, t & keep
     inter = int((poly & t).sum())
     union = int((poly | t).sum())
-    return inter / union if union else 0.0
+    pa, ta = int(poly.sum()), int(t.sum())
+    return dict(iou=inter / union if union else 0.0, court_coverage=inter / pa if pa else 0.0,
+                tone_coverage=inter / ta if ta else 0.0)
 
 
 def _bilinear(img: np.ndarray, uv: np.ndarray) -> np.ndarray:

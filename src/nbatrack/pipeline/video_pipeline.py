@@ -31,7 +31,7 @@ from nbatrack.calib.camera import PinholeCamera, ptz_rotation
 from nbatrack.calib.lines import (
     alignment_stats,
     build_evidence,
-    floor_iou,
+    floor_agreement,
     floor_tone_mask,
     floor_valid_mask,
     initialize_from_landmarks,
@@ -78,6 +78,8 @@ class AnalyzeConfig:
     max_zoom_frac_s: float = 1.0
     min_template_points: int = 150
     max_frames: int | None = None
+    checkpoint_every: int = 1000  # frames; 0 disables stage-A checkpoints
+    stop_after_frame: int | None = None  # test hook: simulate an interruption
 
 
 # Per-detection torso color is too noisy for association gating (clip-2 study: gating at
@@ -118,6 +120,20 @@ class TrackConfig:
     # 0.98 vs 0.59 precision; falls back to "rfdetr" if the WASB ONNX model is missing.
     ball_detector: str = "wasb"
     ball_provider: str = "dml"
+    # Ground-contact plausibility: box height / expected pixel height of a 1.95 m standing person
+    # at the projected ground point. Feet hidden by the crowd / another player, or a seated
+    # person, give a small ratio and a bbox-bottom point that is not the ground contact (clip-6
+    # diagnostic: on-court players 0.89-1.05 median, front-row spectator 0.45).
+    #   min_height_ratio:       per detection: below -> no court position ("feet_not_visible"),
+    #                           raw value kept; image-space tracking unchanged
+    #   min_track_height_ratio: per track: median below -> role "other" (not a player)
+    min_height_ratio: float | None = 0.6  # default since the clip-6 diagnostic: 12/12 sampled suppressed rows had hidden feet
+    min_track_height_ratio: float | None = 0.6  # default since the clip-6 diagnostic: 2/2 relabelled tracks were spectators
+    standing_height_m: float = 1.95
+    # False: the per-detection rule only suppresses the OUTPUT position (the tracker still uses
+    # the point, with its normal gating, for association). True also hides it from the tracker
+    # (clip-6 diagnostic: tracks 23 -> 28, i.e. more fragmentation).
+    height_ratio_gates_tracking: bool = False
 
 
 def _is_ref_center(c, centers) -> bool:
@@ -286,7 +302,8 @@ def analyze_video(video_path: str | Path, out_dir: str | Path, keyframe_json: st
                 cam = state["cam"] = r.camera
         n_pts, inl, _ = alignment_stats(cam, ev, tpl)
         # floor IoU: check independent of the line alignment (which crowd texture can fool)
-        fiou = floor_iou(cam, floor_tone_mask(img), overlay)
+        fa = floor_agreement(cam, floor_tone_mask(img), overlay)
+        fiou = fa["iou"]
         implausible = False
         if prev is not None:  # camera change vs. the neighbouring frame (fwd or bwd)
             dt = abs(ts - prev[0]) or 1.0 / fps
@@ -298,7 +315,7 @@ def analyze_video(video_path: str | Path, out_dir: str | Path, keyframe_json: st
         state["prev"] = (ts, cam.ptz, cam.f)
         calib_log.append(dict(frame=fi, t=ts, segment=sid, method=method, inlier=inl, n=n_pts, quality=q,
                               grade_reason=reason, motion_ok=motion_ok, direction=direction,
-                              floor_iou=fiou,
+                              floor_iou=fiou, court_coverage=fa["court_coverage"], tone_coverage=fa["tone_coverage"],
                               pan=cam.ptz[0], tilt=cam.ptz[1], roll=cam.ptz[2],
                               f=cam.f, Cx=cam.C[0], Cy=cam.C[1], Cz=cam.C[2]))
         state["gray"], state["boxes"] = gray, occl
@@ -309,10 +326,46 @@ def analyze_video(video_path: str | Path, out_dir: str | Path, keyframe_json: st
     # and calibrated backward right after the keyframe.
     before: list = []
     cur = None
+    # Resumable: every `checkpoint_every` frames (when no backward buffer is pending) the
+    # accumulated rows and the propagation state are saved; a rerun with the same video,
+    # segments and configuration skips the finished frames (decode only) and continues.
+    ckpt_path = out / "cache" / "stageA_ckpt.pkl"
+    ckpt_key = json.dumps(dict(sha=info.sha256, segs=segs, flashes=sorted(flashes),
+                               cfg={k: v for k, v in asdict(cfg).items() if k not in ("max_frames", "checkpoint_every", "stop_after_frame")}),
+                          sort_keys=True, default=str)
+    resume_after = -1
+    if cfg.checkpoint_every and ckpt_path.exists():
+        import pickle
+        ck = pickle.loads(ckpt_path.read_bytes())
+        if ck.get("key") == ckpt_key:
+            resume_after = ck["last_frame"]
+            rows_frames, rows_cal, rows_lm, calib_log = ck["rows_frames"], ck["rows_cal"], ck["rows_lm"], ck["calib_log"]
+            det_chunks[:] = ck["det_chunks"]
+            state.update(ck["state"])
+            t_stage = ck["t_stage"]
+            cur = next(s for s in segs if s["camera_segment_id"] == ck["cur_seg"])
+            print(f"[stage A] resuming after frame {resume_after} from {ckpt_path}", flush=True)
+        else:
+            print("[stage A] checkpoint ignored (different video / segments / config)", flush=True)
+
+    def save_checkpoint(fi):
+        import os
+        import pickle
+        tmp = ckpt_path.with_suffix(".tmp")
+        tmp.write_bytes(pickle.dumps(dict(key=ckpt_key, last_frame=fi, rows_frames=rows_frames, rows_cal=rows_cal,
+                                          rows_lm=rows_lm, calib_log=calib_log,
+                                          det_chunks=[np.vstack(det_chunks)] if det_chunks else [],
+                                          state=dict(state), t_stage=t_stage, cur_seg=cur["camera_segment_id"]),
+                                     protocol=pickle.HIGHEST_PROTOCOL))
+        os.replace(tmp, ckpt_path)
+
     t_dec = time.time()
     for fr in iter_frames(video_path):
         if cfg.max_frames is not None and fr.frame_index >= cfg.max_frames:
             break
+        if fr.frame_index <= resume_after:
+            t_dec = time.time()
+            continue
         t_stage["decode"].append(time.time() - t_dec)
         fi, ts, img = fr.frame_index, fr.timestamp_sec, fr.image
         seg = segs[max(0, bisect.bisect_right(seg_starts, fi) - 1)]
@@ -367,6 +420,10 @@ def analyze_video(video_path: str | Path, out_dir: str | Path, keyframe_json: st
                         peak_private_mb=round(mem.peak), at=datetime.now().isoformat(timespec="seconds"))
             (out / "progress.json").write_text(json.dumps(prog), encoding="utf-8")
             print(f"[stage A] {prog}", flush=True)
+        if cfg.checkpoint_every and (fi + 1) % cfg.checkpoint_every == 0 and not before:
+            save_checkpoint(fi)
+        if cfg.stop_after_frame is not None and fi >= cfg.stop_after_frame:
+            raise KeyboardInterrupt(f"stop_after_frame={cfg.stop_after_frame} (test hook)")
         t_dec = time.time()
     if before:
         raise ValueError(f"keyframe of segment {cur['camera_segment_id']} was not reached")
@@ -411,11 +468,59 @@ def analyze_video(video_path: str | Path, out_dir: str | Path, keyframe_json: st
                segments=str(segments_json) if segments_json is not None else None,
                camera_segments=[{k: s[k] for k in ("camera_segment_id", "start_frame", "end_frame", "view_type", "supported")}
                                 for s in segs], flash_frames=sorted(flashes))
+    run["resumed_after_frame"] = resume_after if resume_after >= 0 else None
     (out / "run_analyze.json").write_text(json.dumps(run, indent=2, default=float), encoding="utf-8")
+    if ckpt_path.exists():  # all outputs written: the checkpoint is no longer needed
+        ckpt_path.unlink()
     return run
 
 
 # ======================================================================== stage B
+def merge_interpolated(pl: pd.DataFrame, add: pd.DataFrame) -> tuple[pd.DataFrame, int]:
+    """Add interpolated positions keeping ONE row per (track, frame).
+
+    Where the track already has an image observation at that frame whose court position is
+    unknown (flash frame, uncertain calibration, feet not visible), the interpolated position
+    is written into that row (position_status "interpolated", flag position_interpolated);
+    its box and raw court value stay as observed. Other interpolated rows are appended as
+    image-less rows. Rows with an observed position are never changed."""
+    pl = pl.copy()
+    key = pl.set_index(["track_id", "frame_index"]).index
+    hit = add.set_index(["track_id", "frame_index"]).index.isin(key)
+    n = 0
+    if hit.any():
+        pos = pd.Series(np.arange(len(pl)), index=key)
+        for r in add[hit].itertuples():
+            i = pl.index[pos[(r.track_id, r.frame_index)]]
+            if pl.at[i, "position_status"] != "unknown":
+                continue
+            pl.loc[i, ["court_x_m", "court_y_m", "court_sigma_m"]] = [r.court_x_m, r.court_y_m, r.court_sigma_m]
+            pl.at[i, "position_status"] = "interpolated"
+            f0 = pl.at[i, "flags"]
+            pl.at[i, "flags"] = "position_interpolated" if f0 is None or f0 != f0 else f0 + ";position_interpolated"
+            n += 1
+    out = pd.concat([pl, add[~hit]], ignore_index=True).sort_values(["frame_index", "track_id"])
+    return out, n + int((~hit).sum())
+
+
+def _height_ratio(cam: PinholeCamera, xy: np.ndarray, boxes: np.ndarray, height_m: float) -> np.ndarray:
+    """Observed box height / pixel height of a `height_m` standing person whose feet are at the
+    projected ground point `xy` (NaN where xy is not finite)."""
+    out = np.full(len(boxes), np.nan)
+    ok = np.all(np.isfinite(xy), 1)
+    if ok.any():
+        P0 = np.hstack([xy[ok], np.zeros((ok.sum(), 1))])
+        P1 = P0 + np.array([0.0, 0.0, height_m])
+        u0, z0 = cam.project(P0)
+        u1, z1 = cam.project(P1)
+        exp = u0[:, 1] - u1[:, 1]
+        good = (z0 > 0) & (z1 > 0) & (exp > 1.0)
+        r = np.full(ok.sum(), np.nan)
+        r[good] = (boxes[ok, 3] - boxes[ok, 1])[good] / exp[good]
+        out[ok] = r
+    return out
+
+
 def _ball_candidates(cfg: TrackConfig, out: Path, run_a: dict, dets: pd.DataFrame) -> tuple[pd.DataFrame, str]:
     """Ball candidate rows (detections-cache layout) for track_ball, and their source."""
     if cfg.ball_detector == "rfdetr":
@@ -482,32 +587,37 @@ def track_and_export(out_dir: str | Path, cfg: TrackConfig | None = None) -> dic
             occlusion = ovl.max(1) if ovl.size else np.zeros(len(boxes))
             cp = project_ground_points(CameraCalibration(cam), gp, calib_rmse_px=sigma_px,
                                        on_court_margin_m=cfg.on_court_margin_m)
+            hr = _height_ratio(cam, cp.xy, boxes, cfg.standing_height_m)
             for k, row in enumerate(persons.itertuples()):
                 xy = cp.xy[k]
                 finite = bool(np.all(np.isfinite(xy)))
                 if q != "failed" and finite and not cp.on_court[k]:
                     continue  # bench / spectators / staff
+                feet_ok = not (cfg.min_height_ratio is not None and np.isfinite(hr[k]) and hr[k] < cfg.min_height_ratio)
+                use_xy = emit and finite and (feet_ok or not cfg.height_ratio_gates_tracking)
                 lab = np.array([row.torso_L, row.torso_a, row.torso_b], float)
                 use_app = (cfg.tracker or DEFAULT_TRACKER).w_app > 0 and np.all(np.isfinite(lab))
-                tdets.append(Detection(boxes[k], float(row.score), xy if (emit and finite) else None,
-                                       float(cp.sigma_m[k]) if (emit and finite) else None,
+                tdets.append(Detection(boxes[k], float(row.score), xy if use_xy else None,
+                                       float(cp.sigma_m[k]) if use_xy else None,
                                        lab if use_app else None, occlusion=float(occlusion[k]),
                                        color=lab if np.all(np.isfinite(lab)) else None))
                 meta.append((gp.uv[k], xy if finite else None, float(cp.sigma_m[k]) if finite else None,
-                             (row.torso_L, row.torso_a, row.torso_b), row.Index, float(occlusion[k])))
+                             (row.torso_L, row.torso_a, row.torso_b), row.Index, float(occlusion[k]),
+                             float(hr[k]), feet_ok))
         for a in tracker.update(tdets, M):
             d = tdets[a.det_index]
-            uv, xy, sig, lab, det_idx, occ = meta[a.det_index]
+            uv, xy, sig, lab, det_idx, occ, h_ratio, feet_ok = meta[a.det_index]
+            pos_ok = emit and xy is not None and feet_ok
             rows_pl.append(dict(
-                _det_idx=det_idx, _occ=occ, torso_L=lab[0], torso_a=lab[1], torso_b=lab[2], video_id=video_id, frame_index=fi, timestamp_sec=ts, camera_segment_id=int(sid),
+                _det_idx=det_idx, _occ=occ, _hr=h_ratio, _feet_ok=feet_ok, torso_L=lab[0], torso_a=lab[1], torso_b=lab[2], video_id=video_id, frame_index=fi, timestamp_sec=ts, camera_segment_id=int(sid),
                 track_id=f"s{int(sid):03d}_t{a.track_id:03d}", role="unknown",
                 bbox_x1=d.bbox[0], bbox_y1=d.bbox[1], bbox_x2=d.bbox[2], bbox_y2=d.bbox[3],
                 det_confidence=d.score, assoc_confidence=a.confidence, ground_method="bbox_bottom",
                 image_x=uv[0], image_y=uv[1],
                 court_x_m_raw=xy[0] if (xy is not None and q != "failed") else None,
                 court_y_m_raw=xy[1] if (xy is not None and q != "failed") else None,
-                court_sigma_m=sig if (emit and xy is not None) else None,
-                position_status="observed_projected" if (emit and xy is not None) else "unknown",
+                court_sigma_m=sig if pos_ok else None,
+                position_status="observed_projected" if pos_ok else "unknown",
                 calibration_quality=q, is_visible=True,
                 is_on_court=bool(is_on_court(xy[None], cfg.on_court_margin_m)[0]) if xy is not None else None))
         if g is not None:
@@ -518,12 +628,15 @@ def track_and_export(out_dir: str | Path, cfg: TrackConfig | None = None) -> dic
                                       det_confidence=b.score, is_visible=True,
                                       position_3d_status="unknown"))
     pl = pd.DataFrame(rows_pl)
-    # ---- off-court tracks
-    off = set()
+    # ---- off-court tracks (and, optionally, tracks of truncated / non-standing people)
+    off, short_people = set(), set()
     for tid, g in pl.groupby("track_id"):
         xy = g[["court_x_m_raw", "court_y_m_raw"]].dropna().to_numpy(float)
         if len(xy) and not is_on_court(np.median(xy, axis=0)[None], cfg.offcourt_track_margin_m)[0]:
             off.add(tid)
+        elif cfg.min_track_height_ratio is not None and np.nanmedian(g["_hr"].to_numpy(float)) < cfg.min_track_height_ratio:
+            off.add(tid)
+            short_people.add(tid)
 
     def track_feats(df):
         out = {}
@@ -615,7 +728,9 @@ def track_and_export(out_dir: str | Path, cfg: TrackConfig | None = None) -> dic
                 pl.loc[g.index, "team_confidence"] = conf
         flags = pd.Series([None] * len(g), index=g.index, dtype=object)
         if lab == "OFF":
-            flags[:] = "off_court_track"
+            flags[:] = "truncated_or_non_standing_track" if tid in short_people else "off_court_track"
+        for i in g.index[~g["_feet_ok"].astype(bool).to_numpy()]:
+            flags[i] = "feet_not_visible" if flags[i] is None else flags[i] + ";feet_not_visible"
         for i in g.index[suspect.reindex(g.index, fill_value=False).to_numpy()]:
             flags[i] = "suspected_id_switch" if flags[i] is None else flags[i] + ";suspected_id_switch"
         e = g[g.position_status == "observed_projected"].sort_values("timestamp_sec")
@@ -638,9 +753,9 @@ def track_and_export(out_dir: str | Path, cfg: TrackConfig | None = None) -> dic
     if cfg.interpolate_max_gap_s:
         add = interpolate_gaps(pl[pl.role != "other"], frames, cfg.interpolate_max_gap_s)
         if len(add):
-            pl = pd.concat([pl, add], ignore_index=True).sort_values(["frame_index", "track_id"])
-            n_interp = len(add)
-    pl = pl.drop(columns=[c for c in ("torso_L", "torso_a", "torso_b", "_det_idx", "_occ", "team_vote", "_seg", "_tseg")
+            pl, n_interp = merge_interpolated(pl, add)
+    pl = pl.drop(columns=[c for c in ("torso_L", "torso_a", "torso_b", "_det_idx", "_occ", "team_vote", "_seg", "_tseg",
+                                      "_hr", "_feet_ok")
                           if c in pl.columns])
     write_rows("player_observations", pl.replace({np.nan: None}).to_dict("records"), tables)
     ball_cands, ball_source = _ball_candidates(cfg, out, run_a, dets)

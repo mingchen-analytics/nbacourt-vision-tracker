@@ -155,9 +155,14 @@ def grade_calibration(inlier: float, n: int, floor_iou_v: float | None, cfg: Ana
     Each check is necessary, none is sufficient: they are self-consistency checks, not GT."""
     if n < cfg.min_template_points:
         return "failed", "too_few_template_points"
-    cov_ok = court_coverage is not None and np.isfinite(court_coverage) and court_coverage >= cfg.court_coverage_ok
-    iou_ok = floor_iou_v is None or not np.isfinite(floor_iou_v) or floor_iou_v >= cfg.floor_iou_ok or cov_ok
-    if floor_iou_v is not None and np.isfinite(floor_iou_v) and floor_iou_v < cfg.floor_iou_poor and not cov_ok:
+    # coverage may rescue a moderately low IoU (court-coloured apron) but never a very low one:
+    # a tiny projected court lying inside the floor has coverage ~1 and IoU ~0 (5 of the 14
+    # natural wrong solutions the first version accepted on unseen clip-6 frames).
+    iou_known = floor_iou_v is not None and np.isfinite(floor_iou_v)
+    cov_ok = court_coverage is not None and np.isfinite(court_coverage) and court_coverage >= cfg.court_coverage_ok \
+        and (not iou_known or floor_iou_v >= cfg.floor_iou_poor)
+    iou_ok = not iou_known or floor_iou_v >= cfg.floor_iou_ok or cov_ok
+    if iou_known and floor_iou_v < cfg.floor_iou_poor:
         return "failed", "floor_iou_very_low"
     if inlier < cfg.q_poor:
         return "failed", "line_inliers_very_low"

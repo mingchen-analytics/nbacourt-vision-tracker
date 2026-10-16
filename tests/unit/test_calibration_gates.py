@@ -63,3 +63,5 @@ def test_grade_rules():
     assert grade_calibration(0.95, 1000, 0.34, cfg, court_coverage=0.99) == ("good", "ok")
     assert grade_calibration(0.95, 1000, 0.34, cfg, court_coverage=0.60)[0] == "poor"
     assert grade_calibration(0.95, 1000, 0.20, cfg, court_coverage=0.50)[0] == "failed"
+    # natural failure on unseen clip-6 frames: tiny projected court inside the floor (IoU ~0, coverage ~1)
+    assert grade_calibration(0.92, 1000, 0.004, cfg, court_coverage=1.0)[0] == "failed"

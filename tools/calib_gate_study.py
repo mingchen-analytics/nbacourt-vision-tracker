@@ -31,7 +31,7 @@ from nbatrack.calib.camera import PinholeCamera, ptz_rotation  # noqa: E402
 from nbatrack.calib.lines import (  # noqa: E402
     alignment_stats,
     build_evidence,
-    floor_iou,
+    floor_agreement,
     floor_tone_mask,
     floor_valid_mask,
     template_points,
@@ -53,7 +53,8 @@ def score(cam, img, tone, overlay, tpl):
     h, w = img.shape[:2]
     ev = build_evidence(img, floor_valid_mask(cam, (h, w), 1.0, None, overlay))
     n, inl, _ = alignment_stats(cam, ev, tpl)
-    return floor_iou(cam, tone, overlay), inl, n
+    fa = floor_agreement(cam, tone, overlay)
+    return fa["iou"], inl, n, fa["court_coverage"]
 
 
 def main():
@@ -81,11 +82,11 @@ def main():
                 continue
             cam = camera_from_row(c, size)
             tone = floor_tone_mask(fr.image)
-            iou, inl, n = score(cam, fr.image, tone, overlay, tpl)
-            rows.append(dict(run=run.name, frame=fr.frame_index, pose="stored", quality=c.quality, floor_iou=iou, inlier=inl, n=n))
+            iou, inl, n, cov = score(cam, fr.image, tone, overlay, tpl)
+            rows.append(dict(run=run.name, frame=fr.frame_index, pose="stored", quality=c.quality, floor_iou=iou, inlier=inl, n=n, court_coverage=cov))
             for name, (dp, dt, fs) in PERTURB.items():
-                iou, inl, n = score(perturbed(cam, dp, dt, fs), fr.image, tone, overlay, tpl)
-                rows.append(dict(run=run.name, frame=fr.frame_index, pose=name, quality=None, floor_iou=iou, inlier=inl, n=n))
+                iou, inl, n, cov = score(perturbed(cam, dp, dt, fs), fr.image, tone, overlay, tpl)
+                rows.append(dict(run=run.name, frame=fr.frame_index, pose=name, quality=None, floor_iou=iou, inlier=inl, n=n, court_coverage=cov))
         print(run.name, "done", flush=True)
     df = pd.DataFrame(rows)
     df.to_csv(out / "gate_scores.csv", index=False)

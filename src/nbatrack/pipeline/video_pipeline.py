@@ -70,7 +70,13 @@ class AnalyzeConfig:
     q_good: float = 0.75  # thresholds on alignment inlier fraction (self-consistency)
     q_fair: float = 0.70  # was 0.55 before the gate study
     q_poor: float = 0.35
-    floor_iou_ok: float = 0.45  # good/fair also require this floor IoU
+    floor_iou_ok: float = 0.45  # good/fair also require this floor IoU ...
+    # ... OR this court coverage (share of the projected court with floor tone). Needed where the
+    # floor outside the lines is court-coloured: a correct wide view then has a low IoU
+    # (synthetic wood-apron arena: 3/8 correct poses rejected by IoU alone, 0/8 with this;
+    # real clips 1-5 unchanged since their coverage stays < 0.76; wrong poses accepted 2/1060
+    # with either rule, both 6-degree tilt errors in the synthetic arena).
+    court_coverage_ok: float = 0.80
     floor_iou_poor: float = 0.30  # below: failed whatever the inliers
     # temporal plausibility of the per-frame camera change (broadcast PTZ heads)
     max_pan_deg_s: float = 90.0
@@ -143,14 +149,15 @@ def _is_ref_center(c, centers) -> bool:
 
 
 def grade_calibration(inlier: float, n: int, floor_iou_v: float | None, cfg: AnalyzeConfig,
-                      motion_implausible: bool = False) -> tuple[str, str]:
+                      motion_implausible: bool = False, court_coverage: float | None = None) -> tuple[str, str]:
     """(quality, reason). Only good / fair frames get court coordinates downstream; poor =
     calibration_uncertain, failed = calibration_failed. Image-space tracking is unaffected.
     Each check is necessary, none is sufficient: they are self-consistency checks, not GT."""
     if n < cfg.min_template_points:
         return "failed", "too_few_template_points"
-    iou_ok = floor_iou_v is None or not np.isfinite(floor_iou_v) or floor_iou_v >= cfg.floor_iou_ok
-    if floor_iou_v is not None and np.isfinite(floor_iou_v) and floor_iou_v < cfg.floor_iou_poor:
+    cov_ok = court_coverage is not None and np.isfinite(court_coverage) and court_coverage >= cfg.court_coverage_ok
+    iou_ok = floor_iou_v is None or not np.isfinite(floor_iou_v) or floor_iou_v >= cfg.floor_iou_ok or cov_ok
+    if floor_iou_v is not None and np.isfinite(floor_iou_v) and floor_iou_v < cfg.floor_iou_poor and not cov_ok:
         return "failed", "floor_iou_very_low"
     if inlier < cfg.q_poor:
         return "failed", "line_inliers_very_low"
@@ -310,7 +317,7 @@ def analyze_video(video_path: str | Path, out_dir: str | Path, keyframe_json: st
             implausible = (abs(cam.ptz[0] - prev[1][0]) / dt > cfg.max_pan_deg_s
                            or abs(cam.ptz[1] - prev[1][1]) / dt > cfg.max_tilt_deg_s
                            or abs(np.log(cam.f / prev[2])) / dt > cfg.max_zoom_frac_s)
-        q, reason = grade_calibration(inl, n_pts, fiou, cfg, implausible)
+        q, reason = grade_calibration(inl, n_pts, fiou, cfg, implausible, fa["court_coverage"])
         rows_cal.append(_cam_row(video_id, fi, ts, cam, method, model_name, q, inl, n_pts, sid))
         state["prev"] = (ts, cam.ptz, cam.f)
         calib_log.append(dict(frame=fi, t=ts, segment=sid, method=method, inlier=inl, n=n_pts, quality=q,

@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 
 from nbatrack.calib.camera import PinholeCamera, ptz_rotation
-from nbatrack.calib.lines import alignment_stats, build_evidence, floor_iou, floor_tone_mask, floor_valid_mask, template_points
+from nbatrack.calib.lines import alignment_stats, build_evidence, floor_agreement, floor_tone_mask, floor_valid_mask, template_points
 from nbatrack.pipeline.video_pipeline import AnalyzeConfig, grade_calibration
 
 FIX = Path(__file__).resolve().parents[1] / "fixtures" / "calib_clip6"
@@ -31,21 +31,23 @@ def _scores(name):
     cam = _camera(p["camera"])
     ev = build_evidence(img, floor_valid_mask(cam, img.shape[:2], 1.0))
     n, inl, _ = alignment_stats(cam, ev, template_points())
-    return n, inl, floor_iou(cam, floor_tone_mask(img))
+    fa = floor_agreement(cam, floor_tone_mask(img))
+    return n, inl, fa["iou"], fa["court_coverage"]
 
 
 @pytest.mark.parametrize("name", sorted(POSES))
 def test_real_poses_are_graded_as_expected(name):
-    n, inl, iou = _scores(name)
-    q, why = grade_calibration(inl, n, iou, AnalyzeConfig())
+    n, inl, iou, cov = _scores(name)
+    q, why = grade_calibration(inl, n, iou, AnalyzeConfig(), court_coverage=cov)
     accepted = q in ("good", "fair")
     assert accepted == (POSES[name]["expect"] == "accept"), (name, q, why, round(inl, 3), round(iou, 3))
 
 
 def test_line_inliers_alone_would_accept_a_court_on_the_stands():
     """Documents WHY floor IoU is required: the f2400 failure explains many 'lines' in the crowd."""
-    n, inl, iou = _scores("frame_02400_auto_init_v1")
-    assert inl >= 0.55 and iou < AnalyzeConfig().floor_iou_ok
+    n, inl, iou, cov = _scores("frame_02400_auto_init_v1")
+    cfg = AnalyzeConfig()
+    assert inl >= 0.55 and iou < cfg.floor_iou_ok and cov < cfg.court_coverage_ok
 
 
 def test_grade_rules():
@@ -57,3 +59,7 @@ def test_grade_rules():
     assert grade_calibration(0.6, 1000, 0.7, cfg)[0] == "poor"  # was "fair" before the gate study
     assert grade_calibration(0.9, 1000, 0.7, cfg, motion_implausible=True)[0] == "poor"
     assert grade_calibration(0.9, 10, 0.7, cfg)[0] == "failed"
+    # wood-coloured apron: low IoU but the projected court is almost all floor tone
+    assert grade_calibration(0.95, 1000, 0.34, cfg, court_coverage=0.99) == ("good", "ok")
+    assert grade_calibration(0.95, 1000, 0.34, cfg, court_coverage=0.60)[0] == "poor"
+    assert grade_calibration(0.95, 1000, 0.20, cfg, court_coverage=0.50)[0] == "failed"

@@ -87,6 +87,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("run")
     ap.add_argument("--clips", type=int, default=60, help="cut review clips for the top-N high/medium issues")
+    ap.add_argument("--video", help="annotated video to cut clips from (default <run>/annotated.mp4)")
     a = ap.parse_args()
     run = Path(a.run)
     t = run / "tables"
@@ -341,7 +342,7 @@ def main():
     df = df.sort_values(["start_frame", "_o"]).drop(columns="_o").reset_index(drop=True)
     df.insert(0, "issue_id", [f"I{k:04d}" for k in range(len(df))])
     df["review_clip"] = ""
-    ann = run / "annotated.mp4"
+    ann = Path(a.video) if a.video else run / "annotated.mp4"
     ff = shutil.which("ffmpeg")
     if a.clips and ann.exists() and ff:
         (run / "issues").mkdir(exist_ok=True)

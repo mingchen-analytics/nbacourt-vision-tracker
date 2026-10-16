@@ -54,7 +54,7 @@ def main():
             dt = abs(r.t - p[0]) or 1.0 / fps
             imp = (abs(r.pan - p[1]) / dt > cfg.max_pan_deg_s or abs(r.tilt - p[2]) / dt > cfg.max_tilt_deg_s
                    or abs(np.log(r.f / p[3])) / dt > cfg.max_zoom_frac_s)
-        q, why = grade_calibration(r.inlier, int(r.n), r.floor_iou, cfg, imp)
+        q, why = grade_calibration(r.inlier, int(r.n), r.floor_iou, cfg, imp, getattr(r, "court_coverage", None))
         q_new.append(q)
         reason.append(why)
         prev[r.segment] = (r.t, r.pan, r.tilt, r.f)

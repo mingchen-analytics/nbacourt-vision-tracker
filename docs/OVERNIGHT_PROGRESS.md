@@ -94,6 +94,32 @@ Resumable checkpoint log. Newest entries at the bottom. Git: local repo, branch 
   final rule is decided after stage A from the logged values. 2 integration tests fail
   until then (not committed).
 
+- [x] Ball (commit 70e4455): in the clip-6 diagnostic the last ball gap (f937-1019) had WASB
+  candidates with peaks up to 0.88; they were deleted by the static-clutter rule
+  "|floor y| > 12 m". A ball high in the air (a shot) projects far beyond the court.
+  - Rule off -> ball frames gained: clip 2 +23, clip 4 +23, clip 5 +14, clip 6 diag +65,
+    clip 3 +3, clip 1 0; frames lost: 0 everywhere.
+  - 48/48 sampled gained frames were the real ball in flight (AI visual; sheets in
+    outputs/experiments/ball_far_rule/). Rule off by default.
+- [x] Lost-track 3 s variant: the track mapping shows merges across teams (e.g. a Lakers track
+  continuing as a Nuggets player) -> rejected.
+- [x] Stage-A checkpoints every 1000 frames (`cache/stageA_ckpt.pkl`, resume test written,
+  run after the full run).
+
+- [x] M4 (04:05): full run finished in 94 min wall time.
+  - Stage times: stage A 73 min (1.53 frames/s; RF-DETR on CPU 501 ms/frame, calibration
+    148 ms/frame); WASB 9.6 min; appearance 1.5 min; tracking 1.5 min; rendering 8.2 min.
+  - Peak memory: 3.39 GB (tracking stage); stage A 2.07 GB.
+  - Both videos decode completely (6756/6756 packets, 0 errors).
+  - Original video SHA-256 unchanged.
+  - Calibration: segment 0 99.21% accepted / 0.79% uncertain; segment 2 99.85% / 0.15%;
+    segment 1 unsupported.
+  - Overlays visually OK on 36 frames. All 11 flash frames recovered on the next frame.
+- Incident: after 04:05 the session stopped without continuing (no process running) until the
+  user asked at 12:45. Resumed at 12:45.
+- 12:46: tracking + rendering re-run with the latest code (airborne-ball fix was not in the
+  02:31 process). The first output is kept in outputs/experiments/clip6_full_stageB_v1.
+
 ## Open / in progress
 - 02:31: FULL run started:
   `tools/run_long_video.py data/raw/clip6_long_115s.mp4 --video-id clip6_LAL_at_DEN_long

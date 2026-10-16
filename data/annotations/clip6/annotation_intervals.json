@@ -1,0 +1,13 @@
+{
+ "video": "data/raw/clip6_long_115s.mp4",
+ "selected_by": "claude (from tools/tracking_issues.py densities + inspection sheets), 2026-10-16; NOT ground truth",
+ "rule": "10 s each, non-overlapping, all outside f0-1019 (the diagnostic interval used to tune the box-height thresholds), so annotations give an independent measurement",
+ "intervals": [
+  {"name": "clip6_A_identity", "start_frame": 2580, "end_frame": 3179, "start_sec": 43.04, "end_sec": 53.04,
+   "why": "densest identity-ambiguity window outside the diagnostic interval: 18 possible_id_swap + 4 possible_fragmentation flags (close crossings in the lane)"},
+  {"name": "clip6_B_sideline", "start_frame": 4200, "end_frame": 4799, "start_sec": 70.07, "end_sec": 80.07,
+   "why": "upper (far-side) Lakers bench in view with play near the far sideline and the baseline photographers; the user-reported bench / sideline confusion. The automatic sideline flags are weak detectors, so this interval was chosen from the inspection sheets"},
+  {"name": "clip6_C_ball_calib", "start_frame": 3420, "end_frame": 4019, "start_sec": 57.06, "end_sec": 67.05,
+   "why": "two ball_jump flags, two flash frames (3739, 3914) and the fast blurred centre-court pan f3978-4016 where calibration is graded uncertain"}
+ ]
+}

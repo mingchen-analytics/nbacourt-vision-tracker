@@ -67,6 +67,14 @@ def main() -> None:
     pl = pl[pl.bbox_x1.notna()]  # observed rows only (interpolated rows have no image box)
     bp = run / "tables" / "ball_observations.parquet"
     ball = pd.read_parquet(bp) if bp.exists() else None  # detected + interpolated ball points
+    # Team ids: with manual exemplars (run_track.json team_method) A/B already mean the teams of
+    # teams.json and are kept. Otherwise (k-means) A = darker jerseys by torso lightness. This
+    # must use SOURCE frame numbers (it matches rows to detections), i.e. run before any shift:
+    # matching after the interval shift swapped A/B in the first clip-6 interval packages.
+    rt = run / "run_track.json"
+    team_method = json.loads(rt.read_text(encoding="utf-8")).get("team_method") if rt.exists() else None
+    if team_method != "manual_exemplars":
+        pl = align_team_labels(pl, pd.read_parquet(run / "cache" / "detections.parquet"), dark_is_a=True)
     offset = 0
     if a.start_frame is not None:
         # interval of a long video: CVAT frame k = source frame start + k. The interval is cut
@@ -92,8 +100,6 @@ def main() -> None:
             sink.close()
         (out / "interval.json").write_text(json.dumps(dict(source=str(a.video), run=str(run), start_frame=offset,
                                                            end_frame=end, n_frames=n, fps=fps, note=a.note), indent=1))
-    det = pd.read_parquet(run / "cache" / "detections.parquet")
-    pl = align_team_labels(pl, det, dark_is_a=True)
     # Split pre-annotated tracks where the pipeline's role/team label changes (a
     # suspected identity switch), so the annotator sees the suspected switch point.
     pl = pl.sort_values(["track_id", "frame_index"]).copy()

@@ -65,6 +65,8 @@ def main() -> None:
     n, fps = ra["n_frames"], ra["fps"]
     pl = pd.read_parquet(run / "tables" / "player_observations.parquet")
     pl = pl[pl.bbox_x1.notna()]  # observed rows only (interpolated rows have no image box)
+    bp = run / "tables" / "ball_observations.parquet"
+    ball = pd.read_parquet(bp) if bp.exists() else None  # detected + interpolated ball points
     offset = 0
     if a.start_frame is not None:
         # interval of a long video: CVAT frame k = source frame start + k. The interval is cut
@@ -74,15 +76,20 @@ def main() -> None:
         offset, end = a.start_frame, a.end_frame if a.end_frame is not None else n - 1
         pl = pl[pl.frame_index.between(offset, end)].copy()
         pl["frame_index"] -= offset
+        if ball is not None:
+            ball = ball[ball.frame_index.between(offset, end)].copy()
+            ball["frame_index"] -= offset
         n = end - offset + 1
         cut = out / f"00_video_{a.clip}.mp4"
-        sink = VideoSink(cut, fps)
-        for fr in iter_frames(a.video):
-            if fr.frame_index > end:
-                break
-            if fr.frame_index >= offset:
-                sink.write(fr.image, fr.timestamp_sec)
-        sink.close()
+        prev = json.loads((out / "interval.json").read_text()) if (out / "interval.json").exists() else {}
+        if not (cut.exists() and prev.get("start_frame") == offset and prev.get("end_frame") == end):
+            sink = VideoSink(cut, fps)
+            for fr in iter_frames(a.video):
+                if fr.frame_index > end:
+                    break
+                if fr.frame_index >= offset:
+                    sink.write(fr.image, fr.timestamp_sec)
+            sink.close()
         (out / "interval.json").write_text(json.dumps(dict(source=str(a.video), run=str(run), start_frame=offset,
                                                            end_frame=end, n_frames=n, fps=fps, note=a.note), indent=1))
     det = pd.read_parquet(run / "cache" / "detections.parquet")
@@ -95,7 +102,7 @@ def main() -> None:
     pl["track_id"] = pl.track_id + "_" + run.astype(str)
 
     (out / "01_labels_for_cvat.json").write_text(labels_json_text(), encoding="utf-8")
-    xml = predictions_to_cvat_xml(pl, n, (ra["width"], ra["height"]), a.clip, a.keyframe_step)
+    xml = predictions_to_cvat_xml(pl, n, (ra["width"], ra["height"]), a.clip, a.keyframe_step, ball=ball)
     write_cvat_zip(xml, out / "02_preannotations_CVAT_video_1.1.zip")
 
     step = max(1, int(round(a.foot_every_s * fps)))

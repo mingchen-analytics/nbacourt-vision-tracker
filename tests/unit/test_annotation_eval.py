@@ -66,9 +66,22 @@ def test_points_parsed_as_feet_and_landmarks(tmp_path):
     assert gt.landmarks.iloc[0]["name"] == "L_lane_ft_far"
 
 
+def test_ball_track_roundtrip_with_gap_and_review(tmp_path):
+    ball = pd.DataFrame(dict(frame_index=[f for f in range(30) if not 12 <= f < 20],
+                             image_x=[500.0 + 2 * f for f in range(30) if not 12 <= f < 20], image_y=300.0))
+    xml = predictions_to_cvat_xml(_toy_pl(), 30, (1280, 720), "toy", keyframe_step=5, ball=ball)
+    gt = parse_cvat_xml_bytes(tmp_path, xml)
+    assert gt.n_tracks_unreviewed == 3  # 2 person tracks + the ball track
+    assert sorted(gt.ball.frame) == [f for f in range(30) if not 12 <= f < 20]  # ball not visible in the gap
+    assert np.allclose(gt.ball.sort_values("frame").x, [500.0 + 2 * f for f in range(30) if not 12 <= f < 20])
+    assert (gt.ball.review == "unreviewed").all()
+    gt2 = parse_cvat_xml_bytes(tmp_path, xml.replace(b">unreviewed<", b">reviewed<"))
+    assert gt2.fully_reviewed and (gt2.ball.review == "reviewed").all()
+
+
 def test_label_spec_has_required_labels():
     names = {l["name"] for l in label_spec()}
-    assert names == {"player", "referee", "other_person", "foot_contact", "court_landmark"}
+    assert names == {"player", "referee", "other_person", "foot_contact", "court_landmark", "ball"}
     json.dumps(label_spec())
 
 

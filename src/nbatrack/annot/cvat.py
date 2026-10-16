@@ -9,6 +9,10 @@ Import: a CVAT export (zip or annotations.xml) -> ground-truth tables:
             occluded, review
   feet      frame, x, y, state (planted|airborne|not_visible)
   landmarks frame, name, x, y
+  ball      frame, x, y, state (visible|partly_hidden|estimated), keyframe, review
+            (from `ball` point TRACKS: keyframes where the ball was placed, linear
+            interpolation in between, `outside` = ball not visible; frames outside every
+            ball track are "no ball annotated")
 
 Frame numbers are CVAT task frames, 0-based, equal to our `frame_index` when the task is
 created from the original video file with default settings (no frame step / range);
@@ -34,6 +38,7 @@ from nbatrack.court.geometry import court_landmarks
 REVIEW_VALUES = ["unreviewed", "reviewed"]
 TEAM_VALUES = ["unknown", "A", "B"]
 FOOT_STATES = ["planted", "airborne", "not_visible"]
+BALL_STATES = ["visible", "partly_hidden", "estimated"]
 
 
 def label_spec() -> list[dict]:
@@ -53,6 +58,9 @@ def label_spec() -> list[dict]:
             {"name": "landmark", "input_type": "select", "mutable": True,
              "values": [lm.name for lm in court_landmarks() if lm.on_floor],
              "default_value": court_landmarks()[0].name}]},
+        {"name": "ball", "color": "#ff9100", "type": "points", "attributes": [
+            {"name": "state", "input_type": "select", "mutable": True, "values": BALL_STATES,
+             "default_value": "visible"}, review]},
     ]
 
 
@@ -83,9 +91,34 @@ def _occluded_flags(df: pd.DataFrame, iou_thresh: float = 0.15) -> pd.Series:
     return occ
 
 
+def _ball_track(root, ball: pd.DataFrame, n_frames: int, keyframe_step: int, track_id: int) -> None:
+    """One `ball` point track from ball_observations rows (detected + interpolated):
+    keyframes at run starts/ends and every `keyframe_step` frames, `outside` after each run."""
+    b = ball.sort_values("frame_index")
+    frames = b.frame_index.to_numpy()
+    if not len(frames):
+        return
+    pts = b[["image_x", "image_y"]].to_numpy(float)
+    tr = ET.SubElement(root, "track", id=str(track_id), label="ball", source="auto")
+    breaks = np.flatnonzero(np.diff(frames) > 1)
+    for s, e in zip(np.r_[0, breaks + 1], np.r_[breaks, len(frames) - 1]):
+        for k in range(s, e + 1):
+            if k == s or k == e or (frames[k] - frames[s]) % keyframe_step == 0:
+                p = ET.SubElement(tr, "points", frame=str(int(frames[k])), outside="0", occluded="0", keyframe="1",
+                                  points=f"{pts[k, 0]:.2f},{pts[k, 1]:.2f}", z_order="0")
+                for name, val in (("state", "visible"), ("review", "unreviewed")):
+                    ET.SubElement(p, "attribute", name=name).text = val
+        if frames[e] + 1 < n_frames:
+            p = ET.SubElement(tr, "points", frame=str(int(frames[e] + 1)), outside="1", occluded="0", keyframe="1",
+                              points=f"{pts[e, 0]:.2f},{pts[e, 1]:.2f}", z_order="0")
+            for name, val in (("state", "visible"), ("review", "unreviewed")):
+                ET.SubElement(p, "attribute", name=name).text = val
+
+
 def predictions_to_cvat_xml(pl: pd.DataFrame, n_frames: int, image_size: tuple[int, int],
-                            task_name: str, keyframe_step: int = 5) -> bytes:
-    """Build pre-annotation XML from player_observations rows.
+                            task_name: str, keyframe_step: int = 5, ball: pd.DataFrame | None = None) -> bytes:
+    """Build pre-annotation XML from player_observations rows (and, optionally, the
+    ball_observations rows as one unreviewed `ball` point track).
 
     Tracks get keyframes every `keyframe_step` frames, at their first/last frame and
     around gaps (with an `outside` box after each visible run), so CVAT interpolates the
@@ -130,6 +163,8 @@ def predictions_to_cvat_xml(pl: pd.DataFrame, n_frames: int, image_size: tuple[i
                     _box_el(tr, frames[k], boxes[k], 0, occl[k], 1, attrs)
             if frames[e] + 1 < n_frames:
                 _box_el(tr, frames[e] + 1, boxes[e], 1, 0, 1, attrs)
+    if ball is not None and len(ball):
+        _ball_track(root, ball, n_frames, keyframe_step, tid_num)
     ET.indent(root)
     return ET.tostring(root, encoding="utf-8", xml_declaration=True)
 
@@ -149,8 +184,9 @@ class GroundTruth:
     feet: pd.DataFrame
     landmarks: pd.DataFrame
     n_frames: int | None
-    n_tracks_unreviewed: int
+    n_tracks_unreviewed: int  # person tracks AND ball tracks still marked unreviewed
     source: str
+    ball: pd.DataFrame | None = None
 
     @property
     def fully_reviewed(self) -> bool:
@@ -195,11 +231,27 @@ def parse_cvat_xml(path: str | Path) -> GroundTruth:
     root = ET.fromstring(_read_xml_bytes(path))
     size = root.find("./meta/task/size")
     n_frames = int(size.text) if size is not None and size.text else None
-    box_rows, feet_rows, lm_rows = [], [], []
+    box_rows, feet_rows, lm_rows, ball_rows = [], [], [], []
     unreviewed = 0
     gid = 0
     for tr in root.iter("track"):
         label = tr.attrib["label"]
+        if label == "ball":
+            shapes = [{"frame": int(p.attrib["frame"]), "outside": p.attrib.get("outside", "0") == "1",
+                       "keyframe": p.attrib.get("keyframe", "1") == "1",
+                       "box": [float(v) for v in p.attrib["points"].split(";")[0].split(",")],
+                       "attrs": _attrs(p)} for p in tr.findall("points")]
+            if not shapes:
+                continue
+            review = next((s["attrs"].get("review") for s in shapes if s["attrs"].get("review")), "unreviewed")
+            if review != "reviewed":
+                unreviewed += 1
+            for s in _interp_track(shapes, n_frames):  # "box" holds the (x, y) point here
+                if not s["outside"]:
+                    ball_rows.append(dict(frame=s["frame"], x=s["box"][0], y=s["box"][1],
+                                          state=s["attrs"].get("state", "visible"), keyframe=s["keyframe"],
+                                          review=review))
+            continue
         boxes = [{"frame": int(b.attrib["frame"]), "outside": b.attrib.get("outside", "0") == "1",
                   "occluded": b.attrib.get("occluded", "0") == "1",
                   "keyframe": b.attrib.get("keyframe", "1") == "1",
@@ -232,7 +284,8 @@ def parse_cvat_xml(path: str | Path) -> GroundTruth:
                                             "review", "x1", "y1", "x2", "y2"])
     feet = pd.DataFrame(feet_rows, columns=["frame", "x", "y", "state"])
     lms = pd.DataFrame(lm_rows, columns=["frame", "name", "x", "y"])
-    return GroundTruth(boxes.drop_duplicates(["frame", "gt_id"]), feet, lms, n_frames, unreviewed, str(path))
+    ball = pd.DataFrame(ball_rows, columns=["frame", "x", "y", "state", "keyframe", "review"]).drop_duplicates("frame")
+    return GroundTruth(boxes.drop_duplicates(["frame", "gt_id"]), feet, lms, n_frames, unreviewed, str(path), ball)
 
 
 def _add_point(label, frame, pts, attrs, feet_rows, lm_rows):

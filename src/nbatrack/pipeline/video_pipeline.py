@@ -62,9 +62,20 @@ class AnalyzeConfig:
     provider: str = "dml"
     det_score_min: float = 0.1
     calib_mode: str = "ptz"  # "ptz": center fixed at the keyframe estimate; "free": per frame
+    # Calibration grading (grade_calibration). Line-alignment inliers alone accepted 27.6% of
+    # deliberately wrong poses on clips 1-5 (wrong tilt reaches 0.85: crowd texture "explains"
+    # court lines); floor IoU rejects tilt errors but not pan/focal errors. Requiring both
+    # (inlier >= 0.70 AND floor IoU >= 0.45) accepted 0/980 wrong poses and rejected 1/98
+    # visually verified ones (tools/calib_gate_study.py, docs/OVERNIGHT_REPORT.md).
     q_good: float = 0.75  # thresholds on alignment inlier fraction (self-consistency)
-    q_fair: float = 0.55
+    q_fair: float = 0.70  # was 0.55 before the gate study
     q_poor: float = 0.35
+    floor_iou_ok: float = 0.45  # good/fair also require this floor IoU
+    floor_iou_poor: float = 0.30  # below: failed whatever the inliers
+    # temporal plausibility of the per-frame camera change (broadcast PTZ heads)
+    max_pan_deg_s: float = 90.0
+    max_tilt_deg_s: float = 45.0
+    max_zoom_frac_s: float = 1.0
     min_template_points: int = 150
     max_frames: int | None = None
 
@@ -115,16 +126,25 @@ def _is_ref_center(c, centers) -> bool:
     return bool(np.argmin([score(x) for x in centers]) == [tuple(x) for x in centers].index(tuple(c)))
 
 
-def _quality(inlier: float, n: int, cfg: AnalyzeConfig) -> str:
+def grade_calibration(inlier: float, n: int, floor_iou_v: float | None, cfg: AnalyzeConfig,
+                      motion_implausible: bool = False) -> tuple[str, str]:
+    """(quality, reason). Only good / fair frames get court coordinates downstream; poor =
+    calibration_uncertain, failed = calibration_failed. Image-space tracking is unaffected.
+    Each check is necessary, none is sufficient: they are self-consistency checks, not GT."""
     if n < cfg.min_template_points:
-        return "failed"
-    if inlier >= cfg.q_good:
-        return "good"
-    if inlier >= cfg.q_fair:
-        return "fair"
-    if inlier >= cfg.q_poor:
-        return "poor"
-    return "failed"
+        return "failed", "too_few_template_points"
+    iou_ok = floor_iou_v is None or not np.isfinite(floor_iou_v) or floor_iou_v >= cfg.floor_iou_ok
+    if floor_iou_v is not None and np.isfinite(floor_iou_v) and floor_iou_v < cfg.floor_iou_poor:
+        return "failed", "floor_iou_very_low"
+    if inlier < cfg.q_poor:
+        return "failed", "line_inliers_very_low"
+    if inlier < cfg.q_fair:
+        return "poor", "line_inliers_low"
+    if not iou_ok:
+        return "poor", "floor_iou_low"
+    if motion_implausible:
+        return "poor", "implausible_camera_motion"
+    return ("good" if inlier >= cfg.q_good else "fair"), "ok"
 
 
 def _cam_row(video_id, fi, ts, cam, method, model, quality, inlier, n_pts, seg=0) -> dict:
@@ -219,7 +239,7 @@ def analyze_video(video_path: str | Path, out_dir: str | Path, keyframe_json: st
     rows_frames, rows_cal, rows_lm, calib_log = [], [], [], []
     det_chunks: list[np.ndarray] = []  # per-frame (k, 11) arrays; dicts would need ~1 KB per row
     model_name = "ptz" if cfg.calib_mode == "ptz" else "camera_free"
-    state = {"cam": None, "fixed_C": None, "gray": None, "boxes": None}
+    state = {"cam": None, "fixed_C": None, "gray": None, "boxes": None, "prev": None}
 
     def calibrate(fi, ts, img, occl, direction, seg):
         """One calibration step inside camera segment `seg`. direction: "key" (keyframe),
@@ -232,10 +252,11 @@ def analyze_video(video_path: str | Path, out_dir: str | Path, keyframe_json: st
             cam = state["cam"]
             rows_cal.append(_cam_row(video_id, fi, ts, cam, "held_flash", model_name, "poor", None, None, sid))
             calib_log.append(dict(frame=fi, t=ts, segment=sid, method="held_flash", inlier=np.nan, n=0, quality="poor",
-                                  motion_ok=False, direction=direction, floor_iou=np.nan, pan=cam.ptz[0],
+                                  grade_reason="flash_frame_held", motion_ok=False, direction=direction, floor_iou=np.nan, pan=cam.ptz[0],
                                   tilt=cam.ptz[1], roll=cam.ptz[2], f=cam.f, Cx=cam.C[0], Cy=cam.C[1], Cz=cam.C[2]))
             t_stage["calib"].append(time.time() - t0)
             return
+        prev = None if direction == "key" else state["prev"]
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         method, motion_ok = "propagated", True
         if direction == "key":
@@ -264,12 +285,20 @@ def analyze_video(video_path: str | Path, out_dir: str | Path, keyframe_json: st
             if r.success and r.inlier_frac >= f0:
                 cam = state["cam"] = r.camera
         n_pts, inl, _ = alignment_stats(cam, ev, tpl)
-        q = _quality(inl, n_pts, cfg)
+        # floor IoU: check independent of the line alignment (which crowd texture can fool)
+        fiou = floor_iou(cam, floor_tone_mask(img), overlay)
+        implausible = False
+        if prev is not None:  # camera change vs. the neighbouring frame (fwd or bwd)
+            dt = abs(ts - prev[0]) or 1.0 / fps
+            implausible = (abs(cam.ptz[0] - prev[1][0]) / dt > cfg.max_pan_deg_s
+                           or abs(cam.ptz[1] - prev[1][1]) / dt > cfg.max_tilt_deg_s
+                           or abs(np.log(cam.f / prev[2])) / dt > cfg.max_zoom_frac_s)
+        q, reason = grade_calibration(inl, n_pts, fiou, cfg, implausible)
         rows_cal.append(_cam_row(video_id, fi, ts, cam, method, model_name, q, inl, n_pts, sid))
-        # floor IoU: independent sanity check (line alignment can be fooled by crowd texture)
+        state["prev"] = (ts, cam.ptz, cam.f)
         calib_log.append(dict(frame=fi, t=ts, segment=sid, method=method, inlier=inl, n=n_pts, quality=q,
-                              motion_ok=motion_ok, direction=direction,
-                              floor_iou=floor_iou(cam, floor_tone_mask(img), overlay),
+                              grade_reason=reason, motion_ok=motion_ok, direction=direction,
+                              floor_iou=fiou,
                               pan=cam.ptz[0], tilt=cam.ptz[1], roll=cam.ptz[2],
                               f=cam.f, Cx=cam.C[0], Cy=cam.C[1], Cz=cam.C[2]))
         state["gray"], state["boxes"] = gray, occl
@@ -292,7 +321,7 @@ def analyze_video(video_path: str | Path, out_dir: str | Path, keyframe_json: st
             if before:
                 raise ValueError(f"keyframe of segment {cur['camera_segment_id']} was not reached")
             cur = seg
-            state.update(cam=None, fixed_C=None, gray=None, boxes=None)
+            state.update(cam=None, fixed_C=None, gray=None, boxes=None, prev=None)
         rows_frames.append(dict(video_id=video_id, frame_index=fi, timestamp_sec=ts, pts=fr.pts,
                                 pts_sec=fr.pts_sec, camera_segment_id=sid))
         t0 = time.time()

@@ -1,0 +1,107 @@
+{
+ "frame_00000_keyframe": {
+  "frame": 0,
+  "expect": "accept",
+  "camera": {
+   "f": 4426.017682624526,
+   "cx": 640.0,
+   "cy": 360.0,
+   "k1": 0.0,
+   "ptz": [
+    13.75358066416147,
+    16.584863887312455,
+    -0.4602219503855486
+   ],
+   "C": [
+    -0.04864793971851469,
+    -37.86282223894654,
+    13.007702204892201
+   ]
+  },
+  "note": "manual-estimate keyframe, overlay checked visually"
+ },
+ "frame_06100_keyframe": {
+  "frame": 6100,
+  "expect": "accept",
+  "camera": {
+   "f": 2775.27871119059,
+   "cx": 640.0,
+   "cy": 360.0,
+   "k1": 0.0,
+   "ptz": [
+    -0.5347159891408458,
+    17.17831775149552,
+    -0.3981462495644214
+   ],
+   "C": [
+    0.6738688778847342,
+    -30.748759951430156,
+    10.41570116765271
+   ]
+  },
+  "note": "manual-estimate keyframe, overlay checked visually"
+ },
+ "frame_02400_auto_init_v1": {
+  "frame": 2400,
+  "expect": "reject",
+  "camera": {
+   "f": 3180.0,
+   "cx": 640.0,
+   "cy": 360.0,
+   "k1": 0.0,
+   "ptz": [
+    -11.37,
+    21.12,
+    0.05
+   ],
+   "C": [
+    -0.04864793971851469,
+    -37.86282223894654,
+    13.007702204892201
+   ]
+  },
+  "note": "real failure 2026-10-15: automatic re-init (line-alignment scoring) drew the court onto the stands; line inlier fraction 0.81"
+ },
+ "frame_06100_auto_init_v1": {
+  "frame": 6100,
+  "expect": "reject",
+  "camera": {
+   "f": 3198.0,
+   "cx": 640.0,
+   "cy": 360.0,
+   "k1": 0.0,
+   "ptz": [
+    -11.23,
+    21.09,
+    -0.16
+   ],
+   "C": [
+    -0.04864793971851469,
+    -37.86282223894654,
+    13.007702204892201
+   ]
+  },
+  "note": "real failure 2026-10-15 at f6091 (pose applied to f6100, 9 frames later, same shot): court on the stands"
+ },
+ "frame_06100_auto_init_v2": {
+  "frame": 6100,
+  "expect": "reject",
+  "camera": {
+   "f": 1356.0,
+   "cx": 640.0,
+   "cy": 360.0,
+   "k1": 0.0,
+   "ptz": [
+    -4.75,
+    15.52,
+    -5.07
+   ],
+   "C": [
+    -0.04864793971851469,
+    -37.86282223894654,
+    13.007702204892201
+   ]
+  },
+  "note": "real failure 2026-10-15 at f6091: floor-IoU-scored re-init diverged (roll -5, f 1356)"
+ }
+}

@@ -41,5 +41,28 @@ Resumable checkpoint log. Newest entries at the bottom. Git: local repo, branch 
 - The Denver centre-court logo ring (~6 m wide) is NOT the 3.66 m centre circle; using it as a
   landmark gave 94-100 px residuals.
 
+- [x] M3a (commit 709ed03): calibration grading = line inliers AND floor IoU AND motion
+  plausibility (`grade_calibration`). Gate study on clips 1-5 (DEVELOPMENT data: thresholds
+  were chosen on it):
+  - old rule accepted 27.6% of 980 synthetic wrong poses;
+  - new rule accepted 0/980 and rejected 1/98 visually verified poses.
+  - Regression tests use the real clip-6 failures f2400 / f6091 (DEVELOPMENT examples, not
+    held-out).
+  - Still to do: validation on unseen clip-6 frames with naturally occurring wrong solutions.
+
+## Validation data split (user request 00:24)
+- Development / regression: clips 1-5 gate study; clip-6 frames 0, 2400, 4000, 6091/6100
+  (used to design the grading and the tests).
+- Unseen validation: other clip-6 frames, chosen AFTER the thresholds were frozen
+  (commit 709ed03). Naturally occurring wrong solutions are generated there by the
+  automatic search, as an experiment only.
+
+## Incidents
+- ~23:20-00:21: the laptop apparently slept (system log), which suspended the diagnostic run.
+  `run_long_video.py` now requests "system required" while it runs (per-process, no settings
+  changed). Stage A writes `progress.json` every 300 frames.
+
 ## Open / in progress
-- 23:03: diagnostic run started (`tools/run_long_video.py ... --max-frames 1020`).
+- 23:03: diagnostic run started (`tools/run_long_video.py ... --max-frames 1020`), with code
+  from BEFORE the grading change. Its calibration is re-graded afterwards with
+  tools/regrade_calibration.py.

@@ -360,6 +360,13 @@ def analyze_video(video_path: str | Path, out_dir: str | Path, keyframe_json: st
                 before.clear()
                 state.update(saved)
         mem()
+        if (fi + 1) % 300 == 0:  # progress (a stalled or suspended run is visible)
+            el = time.time() - t_all
+            tot = cfg.max_frames or n_rep
+            prog = dict(frame=fi, of=tot, elapsed_s=round(el), eta_s=round(el / (fi + 1) * (tot - fi - 1)),
+                        peak_private_mb=round(mem.peak), at=datetime.now().isoformat(timespec="seconds"))
+            (out / "progress.json").write_text(json.dumps(prog), encoding="utf-8")
+            print(f"[stage A] {prog}", flush=True)
         t_dec = time.time()
     if before:
         raise ValueError(f"keyframe of segment {cur['camera_segment_id']} was not reached")

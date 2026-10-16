@@ -57,6 +57,18 @@ class PeakMem(threading.Thread):
             time.sleep(0.25)
 
 
+def keep_awake(on: bool) -> None:
+    """Ask Windows not to idle-sleep while this process works (SetThreadExecutionState with
+    ES_CONTINUOUS | ES_SYSTEM_REQUIRED; released on exit). This is a per-process request, not a
+    change of power settings; a closed lid or manual sleep still suspends the run (which then
+    simply continues on resume)."""
+    if sys.platform != "win32":
+        return
+    import ctypes
+    ES_CONTINUOUS, ES_SYSTEM_REQUIRED = 0x80000000, 0x00000001
+    ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS | (ES_SYSTEM_REQUIRED if on else 0))
+
+
 def verify_video(path: Path) -> dict:
     ff = shutil.which("ffmpeg")
     fp = shutil.which("ffprobe")
@@ -83,6 +95,7 @@ def main():
     a = ap.parse_args()
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
+    keep_awake(True)
     mem = PeakMem()
     mem.start()
     rec = json.loads((out / "run_long.json").read_text()) if (out / "run_long.json").exists() else {}
@@ -139,6 +152,7 @@ def main():
                peak_private_mb_this_run=mem.peak, peak_private_mb_by_stage=mem.stage_peak,
                wall_s_this_run=time.time() - t_all)
     (out / "run_long.json").write_text(json.dumps(rec, indent=2, default=float), encoding="utf-8")
+    keep_awake(False)
     print(json.dumps(rec, indent=2, default=float)[:4000])
 
 

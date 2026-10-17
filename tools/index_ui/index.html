@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Video Index Review</title>
+<style>
+  :root { --bg:#14171c; --panel:#1d2229; --line:#323a45; --text:#e6e9ee; --muted:#9aa4b2; --accent:#4c9aff;
+          --away:#7e57c2; --home:#e0e0e0; --warn:#f0a020; --bad:#e05252; --ok:#47b36b; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:13px/1.4 system-ui, "Microsoft JhengHei", sans-serif; }
+  header { display:flex; gap:12px; align-items:center; padding:8px 12px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  header h1 { font-size:15px; margin:0; font-weight:600; }
+  .pill { padding:2px 8px; border-radius:10px; background:var(--panel); color:var(--muted); }
+  main { display:grid; grid-template-columns:minmax(0, 3fr) minmax(320px, 2fr); gap:10px; padding:10px; }
+  @media (max-width: 1000px) { main { grid-template-columns:1fr; } }
+  video { width:100%; background:#000; border-radius:4px; display:block; }
+  .bar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:6px 0; }
+  .readout { font-variant-numeric:tabular-nums; }
+  canvas { width:100%; height:150px; display:block; background:var(--panel); border-radius:4px; cursor:pointer; }
+  .panel { background:var(--panel); border-radius:4px; padding:8px; }
+  button, select, input, textarea { background:#262c35; color:var(--text); border:1px solid var(--line); border-radius:3px; padding:4px 7px; font:inherit; }
+  button:hover { border-color:var(--accent); cursor:pointer; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  button.on { border-color:var(--accent); color:var(--accent); }
+  table { width:100%; border-collapse:collapse; }
+  th, td { padding:3px 5px; border-bottom:1px solid var(--line); text-align:left; white-space:nowrap; }
+  tbody tr { cursor:pointer; }
+  tbody tr:hover { background:#252b34; }
+  tbody tr.sel { background:#22324a; }
+  .tablewrap { max-height:38vh; overflow:auto; }
+  .st-needs_review { color:var(--warn); } .st-confirmed { color:var(--ok); } .st-rejected { color:var(--bad); text-decoration:line-through; } .st-edited { color:var(--accent); }
+  .grid2 { display:grid; grid-template-columns:110px 1fr; gap:4px 8px; align-items:center; }
+  .grid2 input, .grid2 select, .grid2 textarea { width:100%; }
+  .muted { color:var(--muted); }
+  .legend span { display:inline-block; margin-right:10px; }
+  .sw { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:4px; vertical-align:middle; }
+  #msg { min-height:18px; }
+  details pre { white-space:pre-wrap; max-height:180px; overflow:auto; background:#111; padding:6px; border-radius:3px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Video Index Review</h1>
+  <span class="pill" id="vidinfo">loading…</span>
+  <span class="pill" id="srcinfo"></span>
+  <span id="dirty" class="pill" style="display:none;color:var(--warn)">未存檔</span>
+  <button class="primary" id="save">存檔 (Ctrl+S)</button>
+</header>
+<main>
+  <section>
+    <video id="v" src="/video" preload="auto" controls></video>
+    <div class="bar readout">
+      <span>影片 <b id="tnow">0.000</b> s</span>
+      <span>幀 <b id="fnow">0</b></span>
+      <span>比賽時鐘 <b id="gcnow">–</b></span>
+      <span class="muted" id="gcsrc"></span>
+    </div>
+    <div class="bar">
+      <button id="bk1s">◀ 1s</button><button id="bk1f">◀ 1幀</button>
+      <button id="play">播放/暫停</button>
+      <button id="fw1f">1幀 ▶</button><button id="fw1s">1s ▶</button>
+      <select id="rate"><option>0.25</option><option>0.5</option><option selected>1</option><option>2</option></select>
+    </div>
+    <canvas id="tl" width="1200" height="150"></canvas>
+    <div class="legend muted" style="margin-top:4px">
+      <span><i class="sw" style="background:#3d6b4f"></i>主轉播畫面</span>
+      <span><i class="sw" style="background:#8a5a2b"></i>其他畫面</span>
+      <span><i class="sw" style="background:#a33"></i>非比賽時間</span>
+      <span><i class="sw" style="background:var(--away)"></i>客隊進攻</span>
+      <span><i class="sw" style="background:var(--home)"></i>主隊進攻</span>
+      <span><i class="sw" style="background:#666"></i>進攻方未知</span>
+      <span>★ 得分　| 進攻時鐘重置</span>
+    </div>
+  </section>
+  <section>
+    <div class="panel">
+      <div class="bar">
+        <button data-q="candidate_possession">候選回合</button>
+        <button data-q="score_change">得分變化</button>
+        <button data-q="needs_review">需要審核</button>
+        <button data-q="shot_attempt">投籃（人工）</button>
+        <button data-q="manual">所有人工事件</button>
+        <button data-q="">全部</button>
+      </div>
+      <div class="bar">
+        <select id="ftype"><option value="">所有類型</option></select>
+        <select id="fstatus"><option value="">所有狀態</option></select>
+        <input id="ftext" placeholder="搜尋標籤 / 備註 / 隊伍" style="flex:1">
+      </div>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>開始</th><th>結束</th><th>類型</th><th>標籤</th><th>進攻</th><th>時鐘</th><th>信心</th><th>狀態</th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+      <div class="muted" id="count"></div>
+    </div>
+    <div class="panel" style="margin-top:10px">
+      <div class="bar">
+        <b id="edtitle">（點選事件以編輯）</b>
+      </div>
+      <div class="grid2" id="editor">
+        <label>類型</label><select id="e_type"></select>
+        <label>開始 (s)</label><div class="bar" style="margin:0"><input id="e_start" type="number" step="0.001" style="width:110px"><button id="e_setstart">= 目前時間 [</button><button id="e_s_m">−1幀</button><button id="e_s_p">+1幀</button></div>
+        <label>結束 (s)</label><div class="bar" style="margin:0"><input id="e_end" type="number" step="0.001" style="width:110px"><button id="e_setend">= 目前時間 ]</button><button id="e_e_m">−1幀</button><button id="e_e_p">+1幀</button></div>
+        <label>進攻方</label><select id="e_off"></select>
+        <label>標籤</label><input id="e_labels" placeholder="以逗號分隔，例如 pick_and_roll, made">
+        <label>審核狀態</label><select id="e_status"></select>
+        <label>備註</label><textarea id="e_notes" rows="2"></textarea>
+      </div>
+      <div class="bar">
+        <button id="e_playint">▶ 播放此區間</button>
+        <button id="e_confirm">✓ 確認</button>
+        <button id="e_reject">✗ 否決</button>
+        <button id="e_dup">複製</button>
+        <button id="e_del">刪除（僅人工事件）</button>
+        <button id="e_export">匯出片段</button>
+      </div>
+      <div class="bar">
+        <select id="n_type"></select>
+        <button id="n_add">＋ 在目前時間新增事件</button>
+      </div>
+      <details><summary class="muted">證據 / 原始資料</summary><pre id="e_evidence"></pre></details>
+      <div id="msg" class="muted"></div>
+    </div>
+  </section>
+</main>
+<script>
+const $ = s => document.querySelector(s);
+const v = $('#v');
+let doc = null, events = [], sel = null, dirty = false, fps = 30, quick = '';
+const MANUAL_TYPES = ['possession','shot_attempt','made_shot','turnover','foul','free_throw','rebound','timeout','replay','other'];
+const ALL_TYPES = ['camera_segment','non_live','score_change','shot_clock_reset','candidate_possession', ...MANUAL_TYPES];
+const STATUSES = ['auto','needs_review','confirmed','edited','rejected'];
+const fmtClock = s => s == null ? '–' : `${Math.floor(s/60)}:${(s%60).toFixed(s%1 ? 1 : 0).padStart(s%1 ? 4 : 2,'0')}`;
+const msg = (t, bad) => { $('#msg').textContent = t; $('#msg').style.color = bad ? 'var(--bad)' : 'var(--muted)'; };
+const setDirty = d => { dirty = d; $('#dirty').style.display = d ? '' : 'none'; };
+
+async function load() {
+  const r = await fetch('/api/doc'); doc = await r.json(); events = doc.events; fps = doc.header.fps || 30;
+  const t = doc.header.teams || {};
+  $('#vidinfo').textContent = `${doc.header.video_id} · ${(doc.header.duration_s||0).toFixed(1)} s · ${fps.toFixed(2)} fps`;
+  $('#srcinfo').textContent = '資料：' + doc.source;
+  for (const s of ['#ftype','#e_type','#n_type']) {
+    const el = $(s); const list = s === '#n_type' ? MANUAL_TYPES : ALL_TYPES;
+    for (const x of list) el.add(new Option(x, x));
+  }
+  for (const x of STATUSES) { $('#fstatus').add(new Option(x, x)); $('#e_status').add(new Option(x, x)); }
+  $('#e_off').add(new Option('未知', '')); for (const side of ['away','home']) if (t[side]) $('#e_off').add(new Option(`${t[side].id} (${side==='away'?'客':'主'})`, t[side].id));
+  render(); draw();
+}
+
+function clockAt(tt) {
+  const m = doc.clock_map; if (!m || !m.length) return [null, null];
+  for (let i = 0; i < m.length; i++) {
+    const [a, b, g] = m[i];
+    if (tt >= a && tt <= b) return [g, '觀測'];
+    if (i + 1 < m.length && tt > b && tt < m[i+1][0] && g - m[i+1][2] === 1 && m[i+1][0] - b < 1) return [m[i+1][2] + 1 - (tt - b) / (m[i+1][0] - b), '內插'];
+  }
+  return [null, null];
+}
+
+function filtered() {
+  const ft = $('#ftype').value, fs = $('#fstatus').value, q = $('#ftext').value.toLowerCase();
+  return events.filter(e => {
+    if (quick === 'needs_review' && e.review_status !== 'needs_review') return false;
+    if (quick === 'manual' && e.label_source !== 'manual') return false;
+    if (quick && !['needs_review','manual'].includes(quick) && e.event_type !== quick) return false;
+    if (ft && e.event_type !== ft) return false;
+    if (fs && e.review_status !== fs) return false;
+    if (q && !JSON.stringify([e.labels, e.notes, e.offense_team_id, e.event_type]).toLowerCase().includes(q)) return false;
+    return true;
+  }).sort((a, b) => a.video_start_seconds - b.video_start_seconds);
+}
+
+function render() {
+  const tb = $('#rows'); tb.innerHTML = '';
+  const list = filtered();
+  for (const e of list) {
+    const tr = document.createElement('tr');
+    if (sel && e.event_id === sel.event_id) tr.className = 'sel';
+    tr.innerHTML = `<td>${e.video_start_seconds.toFixed(2)}</td><td>${e.video_end_seconds.toFixed(2)}</td><td>${e.event_type}</td>
+      <td>${(e.labels||[]).join(', ')}</td><td>${e.offense_team_id||''}</td><td>${fmtClock(e.game_clock_start)}</td>
+      <td>${e.event_confidence==null?'':e.event_confidence.toFixed(2)}</td><td class="st-${e.review_status}">${e.review_status}</td>`;
+    tr.onclick = () => { select(e); seek(e.video_start_seconds); };
+    tb.appendChild(tr);
+  }
+  $('#count').textContent = `${list.length} / ${events.length} 個事件`;
+  document.querySelectorAll('[data-q]').forEach(b => b.classList.toggle('on', b.dataset.q === quick));
+}
+
+function seek(tt) { v.currentTime = Math.max(0, tt + 0.25 / fps); }
+
+function select(e) {
+  sel = e; $('#edtitle').textContent = `${e.event_type} · ${e.event_id}`;
+  $('#e_type').value = e.event_type; $('#e_start').value = e.video_start_seconds.toFixed(3); $('#e_end').value = e.video_end_seconds.toFixed(3);
+  $('#e_off').value = e.offense_team_id || ''; $('#e_labels').value = (e.labels||[]).join(', ');
+  $('#e_status').value = e.review_status; $('#e_notes').value = e.notes || '';
+  $('#e_evidence').textContent = JSON.stringify({boundary_source: e.boundary_source, evidence: e.evidence, game_clock: [e.game_clock_start, e.game_clock_end, e.game_clock_source],
+     shot_clock: [e.shot_clock_start, e.shot_clock_source], score: [e.score_away_start, e.score_home_start, e.score_away_end, e.score_home_end],
+     team_source: e.team_source, label_source: e.label_source, camera_segment_id: e.camera_segment_id, tracking: e.tracking_data_reference}, null, 1);
+  render(); draw();
+}
+
+function touched(e, what) {
+  if (e.label_source === 'auto' && e.review_status !== 'rejected') e.review_status = 'edited';
+  if (what === 'time' && !e.boundary_source.includes('manual')) e.boundary_source = [...e.boundary_source, 'manual'];
+  if (what === 'team') e.team_source = e.offense_team_id ? 'manual' : null;
+  setDirty(true); select(e);
+}
+
+function bind(id, fn) { $(id).addEventListener('change', () => { if (sel) fn(sel); }); }
+bind('#e_start', e => { e.video_start_seconds = +$('#e_start').value; if (e.video_end_seconds < e.video_start_seconds) e.video_end_seconds = e.video_start_seconds; touched(e, 'time'); });
+bind('#e_end', e => { e.video_end_seconds = Math.max(+$('#e_end').value, e.video_start_seconds); touched(e, 'time'); });
+bind('#e_type', e => { e.event_type = $('#e_type').value; touched(e, 'label'); });
+bind('#e_off', e => { e.offense_team_id = $('#e_off').value || null; const t = doc.header.teams;
+  e.defense_team_id = e.offense_team_id ? (e.offense_team_id === t.away.id ? t.home.id : t.away.id) : null; touched(e, 'team'); });
+bind('#e_labels', e => { e.labels = $('#e_labels').value.split(',').map(s => s.trim()).filter(Boolean); touched(e, 'label'); });
+bind('#e_status', e => { e.review_status = $('#e_status').value; setDirty(true); select(e); });
+bind('#e_notes', e => { e.notes = $('#e_notes').value; setDirty(true); });
+const nudge = (k, d) => () => { if (!sel) return; sel[k] = Math.max(0, +(sel[k] + d).toFixed(4));
+  if (sel.video_end_seconds < sel.video_start_seconds) sel.video_end_seconds = sel.video_start_seconds; touched(sel, 'time'); seek(sel[k]); };
+$('#e_setstart').onclick = () => { if (!sel) return; sel.video_start_seconds = +v.currentTime.toFixed(4); if (sel.video_end_seconds < sel.video_start_seconds) sel.video_end_seconds = sel.video_start_seconds; touched(sel, 'time'); };
+$('#e_setend').onclick = () => { if (!sel) return; sel.video_end_seconds = Math.max(+v.currentTime.toFixed(4), sel.video_start_seconds); touched(sel, 'time'); };
+$('#e_s_m').onclick = nudge('video_start_seconds', -1 / fps); $('#e_s_p').onclick = nudge('video_start_seconds', 1 / fps);
+$('#e_e_m').onclick = nudge('video_end_seconds', -1 / fps); $('#e_e_p').onclick = nudge('video_end_seconds', 1 / fps);
+$('#e_confirm').onclick = () => { if (sel) { sel.review_status = 'confirmed'; setDirty(true); select(sel); } };
+$('#e_reject').onclick = () => { if (sel) { sel.review_status = 'rejected'; setDirty(true); select(sel); } };
+let stopAt = null;
+$('#e_playint').onclick = () => { if (!sel) return; seek(sel.video_start_seconds); stopAt = sel.video_end_seconds; v.play(); };
+v.addEventListener('timeupdate', () => { if (stopAt != null && v.currentTime >= stopAt) { v.pause(); stopAt = null; } });
+
+function newId() { return `${doc.header.video_id}:manual:${Date.now().toString(36)}`; }
+function blank(type, t0, t1) {
+  const e = {}; for (const f of doc.event_fields) e[f] = null;
+  Object.assign(e, { event_id: newId(), game_id: doc.header.game_id || '', video_id: doc.header.video_id, event_type: type,
+    labels: [], video_start_seconds: +t0.toFixed(4), video_end_seconds: +t1.toFixed(4), frame_start: Math.round(t0 * fps), frame_end: Math.round(t1 * fps),
+    boundary_source: ['manual'], evidence: [], review_status: 'confirmed', label_source: 'manual', notes: '' });
+  const [g] = clockAt(t0); if (g != null) { e.game_clock_start = g; e.game_clock_source = 'interpolated'; }
+  return e;
+}
+$('#n_add').onclick = () => { const t = v.currentTime; const type = $('#n_type').value;
+  const e = blank(type, t, type === 'possession' ? t + 10 : t + 1.5); events.push(e); setDirty(true); select(e); msg(`新增 ${type}，請調整開始/結束時間`); };
+$('#e_dup').onclick = () => { if (!sel) return; const e = JSON.parse(JSON.stringify(sel)); e.event_id = newId(); e.label_source = 'manual'; e.review_status = 'edited';
+  events.push(e); setDirty(true); select(e); };
+$('#e_del').onclick = () => { if (!sel) return; if (sel.label_source !== 'manual') return msg('自動事件不可刪除，請用「否決」', true);
+  events = events.filter(e => e !== sel); sel = null; setDirty(true); render(); draw(); };
+$('#e_export').onclick = async () => { if (!sel) return; msg('匯出中…');
+  const r = await fetch('/api/export_clip', {method:'POST', body: JSON.stringify({start: sel.video_start_seconds, end: sel.video_end_seconds, name: sel.event_id.replace(/[:]/g,'_')})});
+  const j = await r.json(); msg(j.ok ? `已匯出：${j.path}` : `匯出失敗：${j.error}`, !j.ok); };
+
+async function save() {
+  const r = await fetch('/api/save', {method:'POST', body: JSON.stringify({events})}); const j = await r.json();
+  if (j.ok) { setDirty(false); $('#srcinfo').textContent = '資料：events_reviewed.json'; msg(`已存檔 ${j.n} 個事件 → ${j.saved}`); }
+  else msg('存檔失敗：' + JSON.stringify(j.errors), true);
+}
+$('#save').onclick = save;
+
+document.querySelectorAll('[data-q]').forEach(b => b.onclick = () => { quick = b.dataset.q; render(); });
+for (const id of ['#ftype','#fstatus']) $(id).onchange = render; $('#ftext').oninput = render;
+$('#play').onclick = () => v.paused ? v.play() : v.pause();
+$('#rate').onchange = () => v.playbackRate = +$('#rate').value;
+const step = d => () => { v.pause(); v.currentTime = Math.max(0, v.currentTime + d); };
+$('#bk1s').onclick = step(-1); $('#fw1s').onclick = step(1);
+$('#bk1f').onclick = () => step(-1 / fps)(); $('#fw1f').onclick = () => step(1 / fps)();
+document.addEventListener('keydown', k => {
+  if (['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)) return;
+  if (k.ctrlKey && k.key === 's') { k.preventDefault(); save(); }
+  else if (k.key === ' ') { k.preventDefault(); v.paused ? v.play() : v.pause(); }
+  else if (k.key === 'ArrowRight') { k.preventDefault(); step(k.shiftKey ? 1 : 1 / fps)(); }
+  else if (k.key === 'ArrowLeft') { k.preventDefault(); step(k.shiftKey ? -1 : -1 / fps)(); }
+  else if (k.key === '[') $('#e_setstart').click(); else if (k.key === ']') $('#e_setend').click();
+});
+window.addEventListener('beforeunload', e => { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
+
+// ---- timeline
+const cv = $('#tl'), ctx = cv.getContext('2d');
+function draw() {
+  if (!doc) return;
+  const W = cv.width = cv.clientWidth * devicePixelRatio, H = cv.height = 150 * devicePixelRatio, D = doc.header.duration_s || v.duration || 1;
+  const X = t => t / D * W, s = devicePixelRatio;
+  ctx.fillStyle = '#1d2229'; ctx.fillRect(0, 0, W, H);
+  const rows = { camera_segment: 6, non_live: 32, candidate_possession: 58, possession: 84, score_change: 112, shot_clock_reset: 112 };
+  ctx.font = `${10 * s}px system-ui`; ctx.fillStyle = '#9aa4b2';
+  [['畫面', 6], ['非比賽', 32], ['候選回合', 58], ['人工', 84], ['事件', 112]].forEach(([n, y]) => ctx.fillText(n, 4 * s, (y + 15) * s));
+  const t = doc.header.teams || {};
+  for (const e of events) {
+    if (e.review_status === 'rejected') ctx.globalAlpha = 0.25; else ctx.globalAlpha = 1;
+    const y = (rows[e.event_type] ?? 84) * s, h = 20 * s, x0 = X(e.video_start_seconds), x1 = Math.max(X(e.video_end_seconds), x0 + 2 * s);
+    if (e.event_type === 'score_change') { ctx.fillStyle = '#ffd54f'; ctx.font = `${16 * s}px system-ui`; ctx.fillText('★', x0 - 6 * s, y + 16 * s); continue; }
+    if (e.event_type === 'shot_clock_reset') { ctx.fillStyle = '#4fc3f7'; ctx.fillRect(x0 - s, y - 2 * s, 2 * s, h + 4 * s); continue; }
+    let c = '#666';
+    if (e.event_type === 'camera_segment') c = (e.labels||[]).includes('main_broadcast') ? '#3d6b4f' : '#8a5a2b';
+    else if (e.event_type === 'non_live') c = '#a33';
+    else if (e.offense_team_id && t.away && e.offense_team_id === t.away.id) c = getComputedStyle(document.body).getPropertyValue('--away');
+    else if (e.offense_team_id && t.home && e.offense_team_id === t.home.id) c = '#cfd3d8';
+    else if (e.label_source === 'manual') c = '#4c9aff';
+    ctx.fillStyle = c; ctx.fillRect(x0 + s, y, x1 - x0 - 2 * s, h);
+    if (e.review_status === 'needs_review') { ctx.strokeStyle = '#f0a020'; ctx.lineWidth = 2 * s; ctx.strokeRect(x0 + s, y, x1 - x0 - 2 * s, h); }
+    if (sel && e.event_id === sel.event_id) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 2 * s; ctx.strokeRect(x0, y - 2 * s, x1 - x0, h + 4 * s); }
+  }
+  ctx.globalAlpha = 1;
+  const px = X(v.currentTime); ctx.fillStyle = '#ff5252'; ctx.fillRect(px - s, 0, 2 * s, H);
+  ctx.fillStyle = '#9aa4b2'; ctx.font = `${9 * s}px system-ui`;
+  for (let tt = 0; tt <= D; tt += 10) ctx.fillText(`${tt}s`, X(tt) + 2 * s, H - 3 * s);
+}
+cv.onclick = ev => { const r = cv.getBoundingClientRect(); const D = doc.header.duration_s || v.duration;
+  const tt = (ev.clientX - r.left) / r.width * D;
+  const y = (ev.clientY - r.top) / r.height * 150;
+  const hit = events.filter(e => tt >= e.video_start_seconds - 0.3 && tt <= e.video_end_seconds + 0.3)
+     .find(e => { const ry = {camera_segment: 6, non_live: 32, candidate_possession: 58, possession: 84, score_change: 112, shot_clock_reset: 112}[e.event_type] ?? 84; return y >= ry && y <= ry + 22; });
+  if (hit) select(hit);
+  v.currentTime = tt; };
+function tick() {
+  const tt = v.currentTime; $('#tnow').textContent = tt.toFixed(3); $('#fnow').textContent = Math.round(tt * fps);
+  const [g, src] = clockAt(tt); $('#gcnow').textContent = fmtClock(g == null ? null : Math.round(g * 10) / 10); $('#gcsrc').textContent = src || '';
+  draw(); requestAnimationFrame(tick);
+}
+window.addEventListener('resize', draw);
+load().then(() => requestAnimationFrame(tick));
+</script>
+</body>
+</html>

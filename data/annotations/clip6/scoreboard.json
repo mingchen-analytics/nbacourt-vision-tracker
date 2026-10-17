@@ -1,0 +1,15 @@
+{
+ "broadcast": "ESPN 2025-26 bottom bar (1280x720)",
+ "annotator": "claude-visual (ROIs read from a gridded 2x crop of frames 0/1500/3600/5000/6300); user may edit",
+ "image_size": [1280, 720],
+ "teams": {"away": {"id": "LAL", "name": "Los Angeles Lakers"}, "home": {"id": "DEN", "name": "Denver Nuggets"}},
+ "fields": {
+  "away_score": [505, 636, 566, 668],
+  "home_score": [668, 636, 746, 668],
+  "period": [758, 636, 800, 668],
+  "game_clock": [810, 638, 913, 667],
+  "shot_clock": [921, 636, 963, 668]
+ },
+ "presence_roi": [312, 636, 395, 668],
+ "presence_reference_frame": 0
+}

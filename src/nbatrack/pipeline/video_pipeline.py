@@ -126,6 +126,11 @@ class TrackConfig:
     # 0.98 vs 0.59 precision; falls back to "rfdetr" if the WASB ONNX model is missing.
     ball_detector: str = "wasb"
     ball_provider: str = "dml"
+    # Opt-in: also run WASB on overlapping 2x2 tiles and add tile candidates with peak >= the
+    # threshold (distant views; clip 3 ball detected 13.5% -> 20.1%, ~11/12 gained frames real by
+    # AI visual check, but 3/12 doubtful on clip 6 blurred pans). Costs ~250-280 ms/frame more.
+    ball_tiles: bool = False
+    ball_tile_min_peak: float = 0.45
     # Ground-contact plausibility: box height / expected pixel height of a 1.95 m standing person
     # at the projected ground point. Feet hidden by the crowd / another player, or a seated
     # person, give a small ratio and a bbox-bottom point that is not the ground contact (clip-6
@@ -539,23 +544,47 @@ def _ball_candidates(cfg: TrackConfig, out: Path, run_a: dict, dets: pd.DataFram
         return dets, "rfdetr"
     if cfg.ball_detector != "wasb":
         raise ValueError(f"unknown ball_detector {cfg.ball_detector!r}")
-    from nbatrack.detect.wasb_ball import DEFAULT_ONNX, WASBBallDetector, detect_video, to_detection_rows
+    from nbatrack.detect.wasb_ball import (
+        DEFAULT_ONNX,
+        WASBBallDetector,
+        detect_video,
+        merge_close,
+        tiled_candidates,
+        to_detection_rows,
+    )
     cache = out / "cache" / "wasb_ball_candidates.parquet"
-    if cache.exists():
-        return to_detection_rows(pd.read_parquet(cache)), "wasb"
-    onnx = Path(__file__).resolve().parents[3] / DEFAULT_ONNX
-    if not onnx.exists():
-        print(f"[ball] WASB model {onnx} missing -> falling back to RF-DETR sports-ball candidates")
-        return dets, "rfdetr (fallback)"
-    try:
-        det = WASBBallDetector(onnx, provider=cfg.ball_provider)
-    except Exception as e:  # DirectML unavailable
-        print(f"[ball] {cfg.ball_provider} provider failed ({e}); using CPU")
-        det = WASBBallDetector(onnx, provider="cpu")
-    c, ms = detect_video(run_a["source"], det, step=1, max_frames=run_a["n_frames"])
-    c.to_parquet(cache)
-    print(f"[ball] WASB: {len(c)} candidates, {ms:.1f} ms/frame")
-    return to_detection_rows(c), "wasb"
+    tcache = out / "cache" / "wasb_ball_tile_candidates.parquet"
+    det = None
+
+    def detector():
+        nonlocal det
+        if det is None:
+            onnx = Path(__file__).resolve().parents[3] / DEFAULT_ONNX
+            try:
+                det = WASBBallDetector(onnx, provider=cfg.ball_provider)
+            except Exception as e:  # DirectML unavailable
+                print(f"[ball] {cfg.ball_provider} provider failed ({e}); using CPU")
+                det = WASBBallDetector(onnx, provider="cpu")
+        return det
+
+    if not cache.exists():
+        if not (Path(__file__).resolve().parents[3] / DEFAULT_ONNX).exists():
+            print("[ball] WASB model missing -> falling back to RF-DETR sports-ball candidates")
+            return dets, "rfdetr (fallback)"
+        c, ms = detect_video(run_a["source"], detector(), step=1, max_frames=run_a["n_frames"])
+        c.to_parquet(cache)
+        print(f"[ball] WASB: {len(c)} candidates, {ms:.1f} ms/frame")
+    c = pd.read_parquet(cache)
+    if not cfg.ball_tiles:
+        return to_detection_rows(c), "wasb"
+    if not tcache.exists():
+        t, ms = tiled_candidates(run_a["source"], detector(), 0, run_a["n_frames"] - 1)
+        t.to_parquet(tcache)
+        print(f"[ball] WASB tiles: {len(t)} candidates, {ms:.1f} ms/frame")
+    t = pd.read_parquet(tcache)
+    t = t[t.peak >= cfg.ball_tile_min_peak]
+    both = merge_close(pd.concat([c.assign(tile=-1), t], ignore_index=True)).reset_index(drop=True)
+    return to_detection_rows(both), f"wasb+tiles(peak>={cfg.ball_tile_min_peak})"
 
 
 def track_and_export(out_dir: str | Path, cfg: TrackConfig | None = None) -> dict:

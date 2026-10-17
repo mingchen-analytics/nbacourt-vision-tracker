@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -63,9 +64,12 @@ def prepare(base: Path, dst: Path) -> None:
     for t in STAGE_A_TABLES:
         if (base / "tables" / f"{t}.parquet").exists():
             shutil.copy(base / "tables" / f"{t}.parquet", dst / "tables" / f"{t}.parquet")
-    for f in (base / "cache").iterdir():
+    for f in (base / "cache").iterdir():  # read-only inputs: hard link (same drive), else copy
         if not (dst / "cache" / f.name).exists():
-            shutil.copy(f, dst / "cache" / f.name)
+            try:
+                os.link(f, dst / "cache" / f.name)
+            except OSError:
+                shutil.copy(f, dst / "cache" / f.name)
 
 
 def main():

@@ -70,3 +70,15 @@ def test_onnx_model_shapes():
     d = WASBBallDetector()
     hm = d.heatmaps([np.zeros((720, 1280, 3), np.uint8)] * 3)
     assert hm.shape == (3, 288, 512) and 0.0 <= hm.min() and hm.max() <= 1.0
+
+def test_tiles_cover_the_frame_and_merge_keeps_highest_peak():
+    from nbatrack.detect.wasb_ball import merge_close, tile_boxes
+    t = tile_boxes(1280, 720, 2, 2, 0.25)
+    assert len(t) == 4 and min(b[0] for b in t) == 0 and max(b[2] for b in t) == 1280
+    assert min(b[1] for b in t) == 0 and max(b[3] for b in t) == 720
+    w = t[0][2] - t[0][0]
+    assert abs(w - 1280 / 1.75) < 2  # 2 tiles with 25% overlap: each ~731 px wide (shrunk 1.43x to 512)
+    c = pd.DataFrame(dict(frame_index=[5, 5, 5], x=[100.0, 104.0, 300.0], y=[50.0, 52.0, 60.0],
+                          peak=[0.5, 0.9, 0.6], heat_sum=1.0, tile=[-1, 0, 1]))
+    m = merge_close(c)
+    assert sorted(m.peak.tolist()) == [0.6, 0.9]  # the two within 8 px merged, higher peak kept

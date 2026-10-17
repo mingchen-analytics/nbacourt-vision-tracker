@@ -14,11 +14,16 @@ components, heat-weighted centroid; mapped back to source pixels.
 
 from __future__ import annotations
 
+import time
+from collections import deque
 from pathlib import Path
 
 import cv2
 import numpy as np
 import onnxruntime as ort
+import pandas as pd
+
+from nbatrack.io.video import iter_frames
 
 DEFAULT_ONNX = Path("models/onnx/wasb_basketball_288x512.onnx")
 MEAN = np.array([0.485, 0.456, 0.406], np.float32)
@@ -136,3 +141,70 @@ def to_detection_rows(cands, half_size_px: float = 8.0, cls: int = 37):
     return pd.DataFrame(dict(frame_index=cands.frame_index.astype(int), cls=cls, score=cands.peak,
                              x1=cands.x - half_size_px, y1=cands.y - half_size_px,
                              x2=cands.x + half_size_px, y2=cands.y + half_size_px))
+
+# ------------------------------------------------------------------ tiled inference (opt-in)
+# WASB sees 1280x720 frames at 512x288; a distant ball of 6-8 px becomes ~3 px. Running it on
+# overlapping 2x2 tiles (each shrunk only ~1.4x) recovers part of those balls
+# (tools/ball_tile_experiment.py: clip 3 detected 13.5% -> 20.1% with tile peak >= 0.45).
+def tile_boxes(w: int, h: int, rows: int, cols: int, overlap: float):
+    tw, th = w / (cols - (cols - 1) * overlap), h / (rows - (rows - 1) * overlap)
+    out = []
+    for r in range(rows):
+        for c in range(cols):
+            x0, y0 = int(round(c * tw * (1 - overlap))), int(round(r * th * (1 - overlap)))
+            out.append((x0, y0, min(w, int(round(x0 + tw))), min(h, int(round(y0 + th)))))
+    return out
+
+
+def tiled_candidates(video: str, det: "WASBBallDetector", f0: int, f1: int, rows=2, cols=2, overlap=0.25):
+    """Sliding 3-frame windows (step 1) per tile; per-frame tile heatmaps are averaged over the
+    windows covering the frame, thresholded, and mapped back to source pixels."""
+    k = det.frames_in
+    buf: deque = deque(maxlen=k)
+    acc: dict = {}
+    rows_out = []
+    tiles = None
+    t_model = 0.0
+    n = 0
+
+    def finalize(upto):
+        for (f, ti) in sorted(x for x in acc if x[0] < upto):
+            s, cnt = acc.pop((f, ti))
+            x0, y0, x1, y1 = tiles[ti]
+            for x, y, peak, hs in det.candidates(s / cnt, (x1 - x0, y1 - y0)):
+                rows_out.append(dict(frame_index=f, x=x + x0, y=y + y0, peak=peak, heat_sum=hs, tile=ti))
+
+    for fr in iter_frames(video):
+        if fr.frame_index > f1:
+            break
+        if fr.frame_index < f0:
+            continue
+        if tiles is None:
+            tiles = tile_boxes(fr.image.shape[1], fr.image.shape[0], rows, cols, overlap)
+        buf.append((fr.frame_index, fr.image))
+        n += 1
+        if len(buf) == k:
+            t0 = time.perf_counter()
+            for ti, (x0, y0, x1, y1) in enumerate(tiles):
+                hm = det.heatmaps([im[y0:y1, x0:x1] for _, im in buf])
+                for (f, _), m in zip(buf, hm):
+                    if (f, ti) in acc:
+                        acc[(f, ti)][0] += m
+                        acc[(f, ti)][1] += 1
+                    else:
+                        acc[(f, ti)] = [m.copy(), 1]
+            t_model += time.perf_counter() - t0
+            finalize(buf[0][0] + 1)
+    finalize(10**12)
+    return pd.DataFrame(rows_out, columns=["frame_index", "x", "y", "peak", "heat_sum", "tile"]), 1000 * t_model / max(1, n)
+
+
+def merge_close(c: pd.DataFrame, px: float = 8.0) -> pd.DataFrame:
+    keep = []
+    for f, g in c.sort_values("peak", ascending=False).groupby("frame_index", sort=False):
+        taken = []
+        for r in g.itertuples():
+            if all(np.hypot(r.x - x, r.y - y) > px for x, y in taken):
+                taken.append((r.x, r.y))
+                keep.append(r.Index)
+    return c.loc[keep].sort_values(["frame_index", "peak"], ascending=[True, False])

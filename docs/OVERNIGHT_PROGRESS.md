@@ -130,8 +130,48 @@ Resumable checkpoint log. Newest entries at the bottom. Git: local repo, branch 
   - LONG_VIDEO_EVALUATION.md and OVERNIGHT_REPORT.md final.
 - [x] M5, M7 done.
 
+## Session 2026-10-16 afternoon (user away; annotation of clip6_A in progress by the user)
+- Local CVAT set up (docs/ANNOTATION_SETUP.md). Tasks:
+  - 1 = clip6_A (user is annotating: 1/23 tracks reviewed so far; do NOT modify);
+  - 2 = clip6_B and 3 = clip6_C (created 18:05, pre-annotations verified).
+- Interval evaluation tooling check on the user's partial export: runs end to end; numbers are
+  NOT ground truth (`outputs/eval/clip6_A_TOOLING_CHECK_unreviewed`).
+- Incident 16:29: unexpected reboot. Docker Desktop does not autostart, and CVAT's redis_inmem
+  AOF was corrupted (502 errors).
+  - Backed up the DB dump + Redis volume to D:\external\cvat_backups.
+  - `redis-check-aof --fix` removed 212 bytes.
+  - Task 1 annotations verified identical to the user's export (6501/6501 boxes).
+- Incident 18:05: pipeline runs failed with "Cannot allocate memory". Free commit was 497 MB with
+  the Docker/WSL VM at 8 GB.
+  - CVAT stopped gracefully (`docker compose stop`, `docker desktop stop`): free commit 5.6 GB.
+  - **Restart CVAT after the experiments** (`Start-Process D:\DockerDesktop\Docker Desktop.exe`) and
+    verify task 1 again.
+- 18:15: rerun of clips 1, 2, 3, 5 with the current pipeline -> outputs/real/clipN_v2
+  (runner outputs/experiments/rerun_remaining.ps1, status in rerun_status.txt). Clip 4 must be
+  rerun separately (killed when the first background job ended).
+- Next: tiled-WASB experiment (tools/ball_tile_experiment.py) and tracker height-consistency gate
+  (variant_runner: current / hgate035 / hgate035_unocc / hgate025).
+
+- 18:40-18:58: clips 1-5 rerun with the current pipeline -> outputs/real/clip{1..5}_v2.
+  - All videos decode fully.
+  - v2 vs old (proxies):
+    - speed violations per 1000 rows: 10.2 -> 9.1, 21.1 -> 17.1, 11.5 -> 8.5 (clips 1-3);
+    - clip-2 ball detected 80% -> 85%.
+  - New calibration rejections, checked visually:
+    - clips 2/3: 5 "failed" frames, all FLASH frames (over-exposed floor; the lines align);
+      single-shot runs have no flash list -> cautious, harmless 1-frame gaps;
+    - clip 3: 44 "uncertain" frames f905-950 (wide blurry view, inliers 0.65-0.68); the overlays
+      look right -> false rejections by the 0.70 inlier threshold (known cost).
+- Height-consistency gate (tracker), development = clip-6 diagnostic, validation = full clip 6
+  frames >= 1020:
+  - Diagnostic: mixed standing/truncated tracks 5 -> 2. Visual checks show non-players removed from
+    player tracks (referee t002, spectators t004 and t011) and one real player recovered (t008).
+  - Unseen frames: mixed tracks 13 -> 12 only; fragmentation flags 29 -> 41; coordinate jumps
+    256 -> 290; frames with > 10 players 13.3% -> 3.8%.
+  - Verdict: NOT validated -> stays OFF by default (TrackerConfig.height_ratio_gate=None).
+
 ## Open / in progress
-- Nothing running. Next steps that need the user: docs/OVERNIGHT_REPORT.md section 10.
+- See the section above.
 
 ## History of this section
 - 02:31: FULL run started:

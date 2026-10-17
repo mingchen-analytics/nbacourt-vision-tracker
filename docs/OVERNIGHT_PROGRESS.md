@@ -170,8 +170,11 @@ Resumable checkpoint log. Newest entries at the bottom. Git: local repo, branch 
     256 -> 290; frames with > 10 players 13.3% -> 3.8%.
   - Verdict: NOT validated -> stays OFF by default (TrackerConfig.height_ratio_gate=None).
 
+- 19:10-19:35: tiled WASB integrated as opt-in (commit 1235ba0); CVAT restarted at 19:35,
+  task 1 verified identical to the user's export (6501/6501 boxes, 1 reviewed track).
+
 ## Open / in progress
-- See the section above.
+- Nothing running. Waiting for the user's reviewed CVAT annotations (tasks 1-3).
 
 ## History of this section
 - 02:31: FULL run started:

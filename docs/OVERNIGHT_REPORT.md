@@ -136,6 +136,17 @@ Thresholds for the height rules were chosen on the diagnostic interval, and the 
 | Experiments | `outputs/experiments/` (`calib_gates*`, `calib_natural`, `clip6_diag_variants`, `ball_far_rule`, `swap_audit_*`) |
 | Annotation packages | `outputs/annotation/clip6_A_identity`, `clip6_B_sideline`, `clip6_C_ball_calib` (10 s each, outside the tuning interval) |
 
+## Addendum: 2026-10-16 afternoon session (user away)
+
+| Item | Result | Evidence |
+|---|---|---|
+| Local CVAT 2.79.0 | Running on Docker/WSL2, data on D:. Tasks 1–3 = clip-6 intervals A/B/C, pre-annotations verified | measured |
+| Interval GT evaluation | Works end to end on the user's partial clip6_A export (refuses to report as GT until all tracks are reviewed) | tooling check |
+| Clips 1–5 rerun with the current pipeline (`outputs/real/clip{1..5}_v2`) | All videos decode fully. Speed-violation rows fell on clips 1–3; clip-2 ball 80% → 85%. 5 calibration rejections on flash frames (harmless); clip 3: 44 cautious false rejections (wide blurry view) | measured / AI visual |
+| Tiled WASB (opt-in `TrackConfig.ball_tiles`) | Clip-3 ball 13.5% → 20.1% (11/12 gained real); clip-6 C 65.3% → 68.5% (9/12 real, 3 doubtful); +250–280 ms/frame | proxy + AI visual |
+| Tracker height-consistency gate | Helped on the tuning interval, did **not** generalize to unseen clip-6 frames (fragmentation up) → kept off | proxy |
+| Incidents | Unexpected reboot corrupted CVAT's Redis file. It was repaired after backups, and the user's annotations were verified intact. Memory pressure (CVAT VM ~8 GB) made pipeline runs fail, so CVAT was paused during runs and restarted after | measured |
+
 ## 10. Next actions that need you
 1. **Annotate the three 10 s clip-6 intervals in CVAT.** Correct the pre-annotations and add ball points. This turns every proxy above into a measurement. The evaluation tool now supports interval packages: `tools/evaluate_against_gt.py --interval`.
 2. **Approve (or not) downloading a re-ID model** (Deep-EIoU's OSNet, ~15–30 MB, weights licence not stated, research use only). This is the main path for problem 1.

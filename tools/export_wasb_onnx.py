@@ -1,8 +1,14 @@
-﻿"""Export the WASB basketball HRNet to ONNX in a clean process (torch only, no cv2/av)."""
+﻿"""Export the WASB basketball HRNet to ONNX in a clean process (torch only, no cv2/av).
+
+Usage: python tools/export_wasb_onnx.py <WASB-SBDT clone> <wasb_basketball_best.pth.tar>
+Keep the clone and the checkpoint outside this repository (weights license not stated).
+"""
 import importlib.util, sys
 from pathlib import Path
 import torch, yaml
-repo = Path("D:/external/WASB-SBDT"); w = Path("D:/external/weights/wasb_basketball_best.pth.tar")
+if len(sys.argv) != 3:
+    sys.exit(__doc__)
+repo = Path(sys.argv[1]); w = Path(sys.argv[2])
 out = Path("models/onnx/wasb_basketball_288x512.onnx"); out.parent.mkdir(parents=True, exist_ok=True)
 class A(dict):
     def __getattr__(self, k): return self[k]

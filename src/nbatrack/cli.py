@@ -22,7 +22,7 @@ def _cmd_synth(a) -> int:
 
 
 def _cmd_process(a) -> int:
-    from nbatrack.pipeline.video_pipeline import AnalyzeConfig, analyze_video, track_and_export
+    from nbatrack.pipeline.video_pipeline import AnalyzeConfig, TrackConfig, analyze_video, track_and_export
     from nbatrack.viz.render import render_videos
     acfg = AnalyzeConfig(provider=a.provider, calib_mode=a.calib_mode, max_frames=a.max_frames)
     if not a.keyframe and not a.segments:
@@ -31,7 +31,8 @@ def _cmd_process(a) -> int:
     run = analyze_video(a.video, a.out, a.keyframe, a.video_id, acfg, segments_json=a.segments)
     print(json.dumps({k: run[k] for k in ("n_frames", "ms_per_frame", "processing_fps",
                                           "peak_private_memory_mb")}, indent=2, default=float))
-    print(json.dumps(track_and_export(a.out), indent=2, default=float)[:2000])
+    tcfg = TrackConfig(ball_detector=a.ball_detector)
+    print(json.dumps(track_and_export(a.out, tcfg), indent=2, default=float)[:2000])
     if not a.no_render:
         print(render_videos(a.video, a.out, max_frames=a.max_frames))
     return 0
@@ -97,6 +98,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--calib-mode", choices=["ptz", "free"], default="ptz")
     p.add_argument("--max-frames", type=int)
     p.add_argument("--no-render", action="store_true")
+    p.add_argument("--ball-detector", choices=["wasb", "rfdetr"], default="wasb",
+                   help="ball candidate source (wasb needs the separately exported WASB ONNX)")
     p.set_defaults(fn=_cmd_process)
     p = sub.add_parser("retrack", help="re-run tracking/export from cached detections")
     p.add_argument("out")

@@ -8,7 +8,7 @@ pre-annotated tracks are review=unreviewed AI predictions to be corrected.
 Credentials: --user / --password, or env CVAT_USER / CVAT_PASSWORD, or a two-line file
 (--cred-file: user on line 1, password on line 2; keep it out of git).
 
-  python tools/cvat_setup_task.py --package outputs/annotation/clip6_A_identity --cred-file D:/external/cvat_admin.txt
+  python tools/cvat_setup_task.py --package outputs/annotation/clip6_A_identity --cred-file <path outside the repo>
 """
 
 from __future__ import annotations

@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "NBA broadcast video to court-coordinate tracking data"
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
-license = { text = "Proprietary (private research)" }
+license = { text = "All rights reserved" }
 dependencies = [
     "numpy>=1.26,<3",
     "scipy>=1.11",
